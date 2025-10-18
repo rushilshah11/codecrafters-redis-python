@@ -2,7 +2,7 @@ import socket  # noqa: F401
 import threading
 
 
-async def handle_connection(client: socket.socket):
+def handle_connection(client: socket.socket):
     """
     This function is called for each new client connection.
     """
