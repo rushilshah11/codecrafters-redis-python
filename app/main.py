@@ -1,5 +1,6 @@
 import socket  # noqa: F401
 import threading
+import time
 
 DATA_STORE = {}  # In-memory key-value store
 
@@ -141,20 +142,60 @@ def handle_connection(client: socket.socket, client_address):
                 key = arguments[0]
                 value = arguments[1]
 
-                DATA_STORE[key] = value
+                expiry_time = None
+                i = 2
+                while i < len(arguments):
+                    option = arguments[i].upper()
+
+                    try:
+
+                        if option == "EX":
+                            expiry_time = int(arguments[i + 1]) * 1000  # Convert seconds to milliseconds
+                            i += 2
+                        elif option == "PX":
+                            expiry_time = int(arguments[i + 1])
+                            i += 2
+                        else:
+                            i += 1
+                    except (IndexError, ValueError):
+                        response = b"-ERR syntax error\r\n"
+                        client.sendall(response)
+                        print(f"Sent: SET syntax error to {client_address}.")
+                        continue
+                
+
+                current_time = int(time.time() * 1000)
+
+                expiry_timestamp = current_time + expiry_time if expiry_time is not None else None
+
+                DATA_STORE[key] = {
+                    "value": value,
+                    "expiry": expiry_timestamp
+                }
                 response = b"+OK\r\n"
                 client.sendall(response)
                 print(f"Sent: OK to {client_address} for SET command.")
             elif command == "GET":
+                if not arguments:
+                    response = b"-ERR wrong number of arguments for 'get' command\r\n"
+                    client.sendall(response)
+                    print(f"Sent: GET argument error to {client_address}.")
+                    continue
                 key = arguments[0]
-                value = DATA_STORE.get(key)
+                data_entry = DATA_STORE.get(key)
 
-                if value is None:
+                if data_entry is None:
                     response = b"$-1\r\n"  # RESP Null Bulk String
                 else:
-                    value_bytes = value.encode()
-                    length_bytes = str(len(value_bytes)).encode()
-                    response = b"$" + length_bytes + b"\r\n" + value_bytes + b"\r\n"
+                    current_time = int(time.time() * 1000)
+                    expiry = data_entry.get("expiry")
+                    if expiry is not None and current_time >= expiry:
+                        del DATA_STORE[key]
+                        response = b"$-1\r\n"  # RESP Null Bulk String
+                    else:
+                        value_bytes = data_entry["value"].encode()
+                        length_bytes = str(len(value_bytes)).encode()
+                        response = b"$" + length_bytes + b"\r\n" + value_bytes + b"\r\n"
                 client.sendall(response)
                 print(f"Sent: GET response for key '{key}' to {client_address}.")
 
