@@ -10,7 +10,9 @@ def main():
     server_socket = socket.create_server(("localhost", 6379), reuse_port=True)
     connection, _ = server_socket.accept() # wait for client
 
-    connection.sendall(b"+PONG\r\n")
+    for i in connection:
+        if i.strip() == b"PING":
+            connection.sendall(b"+PONG\r\n")
     connection.close()
 
 
