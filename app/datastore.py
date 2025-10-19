@@ -115,3 +115,15 @@ def prepend_to_list(key: str, element: str):
         data_entry = DATA_STORE.get(key)
         if data_entry and data_entry.get("type") == "list":
             data_entry["value"].insert(0, element)
+
+def remove_element_from_list(key: str) -> str | None: 
+    """
+    Removes and returns the first element from the list at the given key.
+    Returns None if the list is empty or the key does not exist/is not a list.
+    """
+    with DATA_LOCK:
+        data_entry = DATA_STORE.get(key)
+        if data_entry and data_entry.get("type") == "list":
+            if data_entry["value"]:
+                return data_entry["value"].pop(0)
+    return None

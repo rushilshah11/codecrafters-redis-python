@@ -2,7 +2,7 @@ import socket
 import threading
 import time
 from app.parser import parsed_resp_array
-from app.datastore import DATA_STORE, lrange_rtn, prepend_to_list, size_of_list, append_to_list, existing_list, get_data_entry, set_list, set_string
+from app.datastore import DATA_STORE, lrange_rtn, prepend_to_list, remove_element_from_list, size_of_list, append_to_list, existing_list, get_data_entry, set_list, set_string
 
 # --------------------------------------------------------------------------------
 
@@ -207,6 +207,35 @@ def handle_command(command: str, arguments: list, client: socket.socket) -> bool
         client.sendall(response)
         print(f"Sent: LLEN response for key '{list_key}' to {client_address}.")
 
+    elif command == "LPOP":
+        if not arguments:
+            response = b"-ERR wrong number of arguments for 'lpop' command\r\n"
+            client.sendall(response)
+            print(f"Sent: LPOP argument error to {client_address}.")
+            return True
+        
+        list_key = arguments[0]
+
+        if not existing_list(list_key):
+            response = b"$-1\r\n"  # RESP Null Bulk String
+            client.sendall(response)
+            print(f"Sent: LPOP null response for non-existing list '{list_key}' to {client_address}.")
+            return True
+
+        element = remove_element_from_list(list_key)
+        if element is None:
+            response = b"$-1\r\n"  # RESP Null Bulk String
+            client.sendall(response)
+            print(f"Sent: LPOP null response for empty list '{list_key}' to {client_address}.")
+            return True
+
+        # Construct the Bulk String response
+        element_bytes = element.encode()
+        length_bytes = str(len(element_bytes)).encode()
+        response = b"$" + length_bytes + b"\r\n" + element_bytes + b"\r\n"
+
+        client.sendall(response)
+        print(f"Sent: LPOP response '{element}' for list '{list_key}' to {client_address}.")
     else:
         # Unknown command handler
         error_msg = f"-ERR unknown command '{command}'\r\n".encode()
