@@ -1,8 +1,8 @@
 import socket
 import threading
 import time
-from parser import parsed_resp_array
-from datastore import DATA_STORE, lrange_rtn, prepend_to_list, remove_elements_from_list, size_of_list, append_to_list, existing_list, get_data_entry, set_list, set_string
+from app.parser import parsed_resp_array
+from app.datastore import DATA_STORE, lrange_rtn, prepend_to_list, remove_elements_from_list, size_of_list, append_to_list, existing_list, get_data_entry, set_list, set_string
 
 # --------------------------------------------------------------------------------
 
