@@ -101,5 +101,7 @@ def lrange_rtn(key: str, start: int, end: int) -> list[str]:
                 return []
             if end >= len(list):
                 return list[start:]
+            
+            start = max(0, start)
             return list[start:end + 1]
         return []
