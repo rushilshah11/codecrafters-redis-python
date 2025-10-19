@@ -93,6 +93,10 @@ def lrange_rtn(key: str, start: int, end: int) -> list[str]:
         data_entry = DATA_STORE.get(key)
         if data_entry and data_entry.get("type") == "list":
             list = data_entry["value"]
+            if start < 0:
+                start = start + len(list)
+            if end < 0:
+                end = end + len(list)
             if start > end or start >= len(list):
                 return []
             if end >= len(list):
