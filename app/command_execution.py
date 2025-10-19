@@ -193,6 +193,20 @@ def handle_command(command: str, arguments: list, client: socket.socket) -> bool
         response = b":{size}\r\n".replace(b"{size}", str(size).encode())
         client.sendall(response)
         print(f"Sent: LPUSH response for key '{list_key}' to {client_address}.")
+    
+    elif command == "LLEN":
+        if not arguments:
+            response = b"-ERR wrong number of arguments for 'llen' command\r\n"
+            client.sendall(response)
+            print(f"Sent: LLEN argument error to {client_address}.")
+            return True
+        
+        list_key = arguments[0]
+        size = size_of_list(list_key)
+        response = b":{size}\r\n".replace(b"{size}", str(size).encode())
+        client.sendall(response)
+        print(f"Sent: LLEN response for key '{list_key}' to {client_address}.")
+
     else:
         # Unknown command handler
         error_msg = f"-ERR unknown command '{command}'\r\n".encode()
