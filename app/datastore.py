@@ -83,3 +83,19 @@ def size_of_list(key: str) -> int:
         if data_entry and data_entry.get("type") == "list":
             return len(data_entry["value"])
         return 0
+
+def lrange_rtn(key: str, start: int, end: int) -> list[str]:
+    """
+    Returns a sublist from the list stored at key, from start to end indices (inclusive).
+    If the key does not exist or is not a list, returns an empty list.
+    """
+    with DATA_LOCK:
+        data_entry = DATA_STORE.get(key)
+        if data_entry and data_entry.get("type") == "list":
+            list = data_entry["value"]
+            if start > end or start >= len(list):
+                return []
+            if end >= len(list):
+                return list[start:]
+            return list[start:end + 1]
+        return []

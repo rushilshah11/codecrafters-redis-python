@@ -2,7 +2,7 @@ import socket
 import threading
 import time
 from app.parser import parsed_resp_array
-from app.datastore import DATA_STORE, size_of_list, append_to_list, existing_list, get_data_entry, set_list, set_string
+from app.datastore import DATA_STORE, lrange_rtn, size_of_list, append_to_list, existing_list, get_data_entry, set_list, set_string
 
 # --------------------------------------------------------------------------------
 
@@ -148,7 +148,29 @@ def handle_command(command: str, arguments: list, client: socket.socket) -> bool
         client.sendall(response)
         print(f"Sent: RPUSH response for key '{list_key}' to {client_address}.")
 
-    # Future List Commands (e.g., RPUSH, LRANGE) will go here
+    elif command == "LRANGE":
+        if not arguments or len(arguments) < 3:
+            response = b"-ERR wrong number of arguments for 'lrange' command\r\n"
+            client.sendall(response)
+            print(f"Sent: LRANGE argument error to {client_address}.")
+            return True
+
+        list_key = arguments[0]
+        start = int(arguments[1])
+        end = int(arguments[2])
+
+        list_elements = lrange_rtn(list_key, start, end)
+
+        response_parts = []
+        for element in list_elements: 
+            element_bytes = element.encode()
+            length_bytes = str(len(element_bytes)).encode()
+            response_parts.append(b"$" + length_bytes + b"\r\n" + element_bytes + b"\r\n")
+
+        response = b"*" + str(len(list_elements)).encode() + b"\r\n" + b"".join(response_parts)
+        client.sendall(response)
+        print(f"Sent: LRANGE response for key '{list_key}' to {client_address}.")
+
 
     else:
         # Unknown command handler
