@@ -105,3 +105,13 @@ def lrange_rtn(key: str, start: int, end: int) -> list[str]:
             start = max(0, start)
             return list[start:end + 1]
         return []
+
+def prepend_to_list(key: str, element: str):
+    """
+    Prepends an element to an existing list at the given key.
+    Assumes the list already exists.
+    """
+    with DATA_LOCK:
+        data_entry = DATA_STORE.get(key)
+        if data_entry and data_entry.get("type") == "list":
+            data_entry["value"].insert(0, element)

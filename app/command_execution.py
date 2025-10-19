@@ -2,7 +2,7 @@ import socket
 import threading
 import time
 from app.parser import parsed_resp_array
-from app.datastore import DATA_STORE, lrange_rtn, size_of_list, append_to_list, existing_list, get_data_entry, set_list, set_string
+from app.datastore import DATA_STORE, lrange_rtn, prepend_to_list, size_of_list, append_to_list, existing_list, get_data_entry, set_list, set_string
 
 # --------------------------------------------------------------------------------
 
@@ -171,7 +171,27 @@ def handle_command(command: str, arguments: list, client: socket.socket) -> bool
         client.sendall(response)
         print(f"Sent: LRANGE response for key '{list_key}' to {client_address}.")
 
+    elif command == "LPUSH":
+        if not arguments:
+            response = b"-ERR wrong number of arguments for 'lpush' command\r\n"
+            client.sendall(response)
+            print(f"Sent: LPUSH argument error to {client_address}.")
+            return True
+        
+        list_key = arguments[0]
+        element = arguments[1]
 
+        size = 0
+
+        if existing_list(list_key):
+                prepend_to_list(list_key, element)
+        else:
+            set_list(list_key, [element], None)
+
+        size = size_of_list(list_key)
+        response = b":{size}\r\n".replace(b"{size}", str(size).encode())
+        client.sendall(response)
+        print(f"Sent: LPUSH response for key '{list_key}' to {client_address}.")
     else:
         # Unknown command handler
         error_msg = f"-ERR unknown command '{command}'\r\n".encode()
