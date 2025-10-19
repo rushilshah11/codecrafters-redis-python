@@ -140,11 +140,10 @@ def handle_command(command: str, arguments: list, client: socket.socket) -> bool
         if existing_list(list_key):
             for element in elements:
                 append_to_list(list_key, element)
-            size = size_of_list(list_key)
         else:
             set_list(list_key, elements, None)
-            size = 1
 
+        size = size_of_list(list_key)
         response = b":{size}\r\n".replace(b"{size}", str(size).encode())
         client.sendall(response)
         print(f"Sent: RPUSH response for key '{list_key}' to {client_address}.")
