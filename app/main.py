@@ -2,7 +2,7 @@ import socket
 import threading
 # Note: For a real package, you would import with '.command_executor', 
 # but for a flat directory, the import might need adjustment.
-from app.command_execution import handle_connection
+from command_execution import handle_connection
 
 def main():
 

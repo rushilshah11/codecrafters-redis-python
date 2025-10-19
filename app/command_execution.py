@@ -1,8 +1,8 @@
 import socket
 import threading
 import time
-from app.parser import parsed_resp_array
-from app.datastore import DATA_STORE, lrange_rtn, prepend_to_list, remove_elements_from_list, size_of_list, append_to_list, existing_list, get_data_entry, set_list, set_string
+from parser import parsed_resp_array
+from datastore import DATA_STORE, lrange_rtn, prepend_to_list, remove_elements_from_list, size_of_list, append_to_list, existing_list, get_data_entry, set_list, set_string
 
 # --------------------------------------------------------------------------------
 
@@ -224,21 +224,24 @@ def handle_command(command: str, arguments: list, client: socket.socket) -> bool
             return True
 
         if arguments == []:
-            elements = remove_elements_from_list(list_key, 1)
+            list_elements = remove_elements_from_list(list_key, 1)
         else:
-            elements = remove_elements_from_list(list_key, int(arguments[0]))
-        if elements is None:
+            list_elements = remove_elements_from_list(list_key, int(arguments[0]))
+        if list_elements is None:
             response = b"$-1\r\n"  # RESP Null Bulk String
             client.sendall(response)
             print(f"Sent: LPOP null response for empty list '{list_key}' to {client_address}.")
             return True
 
-        # Construct the Bulk String response
-        elements_bytes = elements.encode()
-        length_bytes = str(len(elements_bytes)).encode()
-        response = b"$" + length_bytes + b"\r\n" + elements_bytes + b"\r\n"
+        response_parts = []
+        for element in list_elements: 
+            element_bytes = element.encode()
+            length_bytes = str(len(element_bytes)).encode()
+            response_parts.append(b"$" + length_bytes + b"\r\n" + element_bytes + b"\r\n")
 
+        response = b"*" + str(len(list_elements)).encode() + b"\r\n" + b"".join(response_parts)
         client.sendall(response)
+
         print(f"Sent: LPOP response '{elements}' for list '{list_key}' to {client_address}.")
 
     else:
