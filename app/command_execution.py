@@ -144,7 +144,7 @@ def handle_command(command: str, arguments: list, client: socket.socket) -> bool
             set_list(list_key, element, None)
             size = 1
 
-        response = b"+{size}\r\n".replace(b"{size}", str(size).encode())
+        response = b":{size}\r\n".replace(b"{size}", str(size).encode())
         client.sendall(response)
         print(f"Sent: RPUSH response for key '{list_key}' to {client_address}.")
 
