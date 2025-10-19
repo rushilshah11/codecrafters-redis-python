@@ -239,7 +239,12 @@ def handle_command(command: str, arguments: list, client: socket.socket) -> bool
             length_bytes = str(len(element_bytes)).encode()
             response_parts.append(b"$" + length_bytes + b"\r\n" + element_bytes + b"\r\n")
 
-        response = b"*" + str(len(list_elements)).encode() + b"\r\n" + b"".join(response_parts)
+        if len(response_parts) == 1:
+            response = b"$" + str(len(list_elements[0].encode())).encode() + b"\r\n" + list_elements[0].encode() + b"\r\n"
+        else:
+            response = b"*" + str(len(list_elements)).encode() + b"\r\n" + b"".join(response_parts)
+        
+        
         client.sendall(response)
 
         print(f"Sent: LPOP response '{list_elements}' for list '{list_key}' to {client_address}.")
