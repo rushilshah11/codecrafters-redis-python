@@ -43,14 +43,14 @@ def set_string(key: str, value: str, expiry_timestamp: int | None):
             "expiry": expiry_timestamp
         }
 
-def set_list(key: str, element: str, expiry_timestamp: int | None):
+def set_list(key: str, elements: list[str], expiry_timestamp: int | None):
     """
     Sets a key to a list of strings with optional expiration.
     """
     with DATA_LOCK:
         DATA_STORE[key] = {
             "type": "list",
-            "value": [element],
+            "value": elements,
             "expiry": expiry_timestamp
         }
 

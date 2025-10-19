@@ -133,15 +133,16 @@ def handle_command(command: str, arguments: list, client: socket.socket) -> bool
             return True
         
         list_key = arguments[0]
-        element = arguments[1]
+        elements = arguments[1:]
 
         size = 0
 
         if existing_list(list_key):
-            append_to_list(list_key, element) 
+            for element in elements:
+                append_to_list(list_key, element)
             size = size_of_list(list_key)
         else:
-            set_list(list_key, element, None)
+            set_list(list_key, elements, None)
             size = 1
 
         response = b":{size}\r\n".replace(b"{size}", str(size).encode())
