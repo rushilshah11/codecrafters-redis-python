@@ -2,7 +2,7 @@ import socket
 import threading
 import time
 from app.parser import parsed_resp_array
-from app.datastore import DATA_STORE, lrange_rtn, prepend_to_list, remove_element_from_list, size_of_list, append_to_list, existing_list, get_data_entry, set_list, set_string
+from app.datastore import DATA_STORE, lrange_rtn, prepend_to_list, remove_elements_from_list, size_of_list, append_to_list, existing_list, get_data_entry, set_list, set_string
 
 # --------------------------------------------------------------------------------
 
@@ -224,9 +224,9 @@ def handle_command(command: str, arguments: list, client: socket.socket) -> bool
             return True
 
         if arguments == []:
-            elements = remove_element_from_list(list_key, None)
+            elements = remove_elements_from_list(list_key, None)
         else:
-            elements = remove_element_from_list(list_key, arguments[0])
+            elements = remove_elements_from_list(list_key, arguments[0])
         if elements is None:
             response = b"$-1\r\n"  # RESP Null Bulk String
             client.sendall(response)
