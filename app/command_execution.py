@@ -242,7 +242,7 @@ def handle_command(command: str, arguments: list, client: socket.socket) -> bool
         response = b"*" + str(len(list_elements)).encode() + b"\r\n" + b"".join(response_parts)
         client.sendall(response)
 
-        print(f"Sent: LPOP response '{elements}' for list '{list_key}' to {client_address}.")
+        print(f"Sent: LPOP response '{list_elements}' for list '{list_key}' to {client_address}.")
 
     else:
         # Unknown command handler

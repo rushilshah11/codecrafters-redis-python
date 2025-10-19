@@ -116,7 +116,7 @@ def prepend_to_list(key: str, element: str):
         if data_entry and data_entry.get("type") == "list":
             data_entry["value"].insert(0, element)
 
-def remove_elements_from_list(key: str, count: int) -> list[str]: 
+def remove_elements_from_list(key: str, count: int) -> list[str] | None: 
     """
     Removes and returns the first elements from the list at the given key.
     Returns None if the list is empty or the key does not exist/is not a list.
@@ -129,6 +129,6 @@ def remove_elements_from_list(key: str, count: int) -> list[str]:
             
             if not data_entry["value"]:
                 del DATA_STORE[key]
-                return []
-            
-    return []
+                return None
+
+    return None
