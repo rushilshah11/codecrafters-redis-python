@@ -116,39 +116,19 @@ def prepend_to_list(key: str, element: str):
         if data_entry and data_entry.get("type") == "list":
             data_entry["value"].insert(0, element)
 
-def remove_elements_from_list(key: str, count: int) -> list[str] | str | None: 
+def remove_elements_from_list(key: str, count: int) -> list[str] | None: 
     """
     Removes and returns the first elements from the list at the given key.
-    Returns: single string (count=1), list of strings (count>1), or None.
+    Returns None if the list is empty or the key does not exist/is not a list.
     """
     with DATA_LOCK:
         data_entry = DATA_STORE.get(key)
-        
-        # 1. Validation (must be a list and must not be expired)
-        if not data_entry or data_entry.get("type") != "list":
-            # NOTE: If key exists but type is wrong, you must return a -WRONGTYPE error 
-            # (which should be handled in the main handler).
-            return None 
-        
-        list_data = data_entry["value"]
-        
-        if not list_data:
-            # List is empty, delete the key and return None
-            del DATA_STORE[key] 
-            return None
-
-        # Determine the final number of elements to pop
-        pop_count = min(count, len(list_data))
-
-        # 2. Extract elements
-        popped_elements = [list_data.pop(0) for _ in range(pop_count)]
+        if data_entry and data_entry.get("type") == "list":
+            if data_entry["value"]:
+                return [data_entry["value"].pop(0) for _ in range(count)]
             
-        # 3. If list is now empty, delete the key
-        if not list_data:
-            del DATA_STORE[key]
+            if not data_entry["value"]:
+                del DATA_STORE[key]
+                return None
             
-        # 4. Return format: Single string if 1 element was requested/popped, list otherwise.
-        if pop_count == 1:
-            return popped_elements[0]
-        else:
-            return popped_elements
+    return None

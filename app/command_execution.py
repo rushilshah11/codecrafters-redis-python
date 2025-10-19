@@ -207,62 +207,39 @@ def handle_command(command: str, arguments: list, client: socket.socket) -> bool
         client.sendall(response)
         print(f"Sent: LLEN response for key '{list_key}' to {client_address}.")
 
-    # Assuming you have the helper function to encode an array:
-# from your_file import encode_resp_array 
-
     elif command == "LPOP":
-        if len(arguments) == 0:
+        if not arguments:
             response = b"-ERR wrong number of arguments for 'lpop' command\r\n"
             client.sendall(response)
             print(f"Sent: LPOP argument error to {client_address}.")
             return True
         
-    list_key = arguments[0]
-    count = 1 # Default to 1 element pop
-    
-    # 1. Parse optional COUNT argument
-    if len(arguments) > 1:
-        try:
-            count = int(arguments[1])
-            if count <= 0:
-                response = b"-ERR value is out of range, must be positive\r\n"
-                client.sendall(response)
-                return True
-        except ValueError:
-            response = b"-ERR value is not an integer or out of range\r\n"
+        list_key = arguments[0]
+        arguments = arguments[1:]
+
+        if not existing_list(list_key):
+            response = b"$-1\r\n"  # RESP Null Bulk String
             client.sendall(response)
+            print(f"Sent: LPOP null response for non-existing list '{list_key}' to {client_address}.")
             return True
 
-    # 2. Execute LPOP operation
-    # Note: We must call the helper with the actual integer count.
-    elements = remove_elements_from_list(list_key, count)
+        if arguments == []:
+            elements = remove_elements_from_list(list_key, 1)
+        else:
+            elements = remove_elements_from_list(list_key, int(arguments[0]))
+        if elements is None:
+            response = b"$-1\r\n"  # RESP Null Bulk String
+            client.sendall(response)
+            print(f"Sent: LPOP null response for empty list '{list_key}' to {client_address}.")
+            return True
 
-    # 3. Handle Null/Empty Response ($-1\r\n)
-    if elements is None or (isinstance(elements, list) and not elements):
-        response = b"$-1\r\n"
-        client.sendall(response)
-        print(f"Sent: LPOP null response for key '{list_key}'.")
-        return True
-
-    # 4. Determine and Construct RESP Encoding
-    if isinstance(elements, str):
-        # Single Pop (count=1): Bulk String ($L\r\nvalue\r\n)
+        # Construct the Bulk String response
         elements_bytes = elements.encode()
         length_bytes = str(len(elements_bytes)).encode()
         response = b"$" + length_bytes + b"\r\n" + elements_bytes + b"\r\n"
-        
-    elif isinstance(elements, list):
-        # Multiple Pops (count>1): Array of Bulk Strings
-        response_parts = []
-        for element in elements:
-            element_bytes = element.encode()
-            length_bytes = str(len(element_bytes)).encode()
-            response_parts.append(b"$" + length_bytes + b"\r\n" + element_bytes + b"\r\n")
-        
-        response = b"*" + str(len(elements)).encode() + b"\r\n" + b"".join(response_parts)
-        
+
         client.sendall(response)
-        print(f"Sent: LPOP response for list '{list_key}'.")
+        print(f"Sent: LPOP response '{elements}' for list '{list_key}' to {client_address}.")
 
     else:
         # Unknown command handler
