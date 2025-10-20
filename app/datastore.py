@@ -5,6 +5,9 @@ import threading
 # preventing data corruption (race conditions) when multiple clients run SET simultaneously.
 DATA_LOCK = threading.Lock()
 
+BLOCKING_CLIENTS_LOCK = threading.Lock()
+BLOCKING_CLIENTS = {}
+
 # The central storage. Keys map to a dictionary containing value, type, and expiry metadata.
 # Example: {'mykey': {'type': 'string', 'value': 'myvalue', 'expiry': 1731671220000}}
 DATA_STORE = {}

@@ -2,7 +2,7 @@ import socket
 import threading
 import time
 from app.parser import parsed_resp_array
-from app.datastore import DATA_STORE, lrange_rtn, prepend_to_list, remove_elements_from_list, size_of_list, append_to_list, existing_list, get_data_entry, set_list, set_string
+from app.datastore import BLOCKING_CLIENTS, BLOCKING_CLIENTS_LOCK, DATA_LOCK, DATA_STORE, lrange_rtn, prepend_to_list, remove_elements_from_list, size_of_list, append_to_list, existing_list, get_data_entry, set_list, set_string
 
 # --------------------------------------------------------------------------------
 
@@ -148,6 +148,57 @@ def handle_command(command: str, arguments: list, client: socket.socket) -> bool
         client.sendall(response)
         print(f"Sent: RPUSH response for key '{list_key}' to {client_address}.")
 
+        blocked_client_condition = None
+
+        with BLOCKING_CLIENTS_LOCK:
+            if list_key in BLOCKING_CLIENTS and BLOCKING_CLIENTS[list_key]:
+                # Get the longest waiting client (FIFO)
+                blocked_client_condition = BLOCKING_CLIENTS[list_key].pop(0)
+                if not BLOCKING_CLIENTS[list_key]:
+                    del BLOCKING_CLIENTS[list_key]
+
+        if blocked_client_condition:
+            # A blocked client was found, serve them immediately using the newly added element(s)
+            
+            # 1. Perform LPOP on the key to get the element
+            # This is safe because RPUSH completed, ensuring an element is there.
+            # We only pop one element for the BLPOP client.
+            popped_elements = remove_elements_from_list(list_key, 1)
+            
+            if popped_elements:
+                popped_element = popped_elements[0]
+                
+                # 2. Construct the BLPOP response array: [key, element]
+                key_bytes = list_key.encode()
+                element_bytes = popped_element.encode()
+
+                key_resp = b"$" + str(len(key_bytes)).encode() + b"\r\n" + key_bytes + b"\r\n"
+                element_resp = b"$" + str(len(element_bytes)).encode() + b"\r\n" + element_bytes + b"\r\n"
+
+                # RESP Array: *2\r\n$len\r\nkey\r\n$len\r\nelement\r\n
+                blpop_response = b"*2\r\n" + key_resp + element_resp
+
+                # 3. Send response to the blocked client's socket
+                blocked_client_socket = blocked_client_condition.client_socket
+                try:
+                    blocked_client_socket.sendall(blpop_response)
+                    print(f"Sent: BLPOP response '{[list_key, popped_element]}' to blocked client.")
+                except Exception as e:
+                    # Handle case where the blocked client disconnected
+                    print(f"Error sending BLPOP response to blocked client: {e}")
+
+                # 4. Notify the blocked client's thread to wake up
+                with blocked_client_condition:
+                    blocked_client_condition.notify()
+                    
+                # Note: The RPUSH response should still be sent to the RPUSH client
+                # (e.g., the length of the list, which is 1 less due to the LPOP above)
+                # You'll need to calculate this new length accurately.
+                # ... (Send RPUSH response)
+                return True
+                
+        # ... (If no blocked clients, or after serving the blocked client, send RPUSH response)
+
     elif command == "LRANGE":
         if not arguments or len(arguments) < 3:
             response = b"-ERR wrong number of arguments for 'lrange' command\r\n"
@@ -248,6 +299,75 @@ def handle_command(command: str, arguments: list, client: socket.socket) -> bool
         client.sendall(response)
 
         print(f"Sent: LPOP response '{list_elements}' for list '{list_key}' to {client_address}.")
+
+    elif command == "BLPOP":
+        # 1. Basic Argument Validation
+        if len(arguments) != 2:
+            response = b"-ERR wrong number of arguments for 'blpop' command\r\n"
+            client.sendall(response)
+            return True
+        
+        list_key = arguments[0]
+        timeout = int(arguments[1])
+        
+        # 2. Check the list immediately (requires DATA_LOCK)
+        # Reuse your existing list check (using DATA_STORE and DATA_LOCK)
+        with DATA_LOCK:
+            has_elements = existing_list(list_key) and len(DATA_STORE[list_key]["value"]) > 0
+
+        # 3. If elements exist, execute LPOP immediately
+        if has_elements:
+            # Use existing LPOP logic for single element pop
+            list_elements = remove_elements_from_list(list_key, 1)
+            
+            # ... (Construct the RESP Array: *2\r\n$len\r\nkey\r\n$len\r\nelement\r\n)
+            response_parts = []
+            # First part: key
+            key_bytes = list_key.encode()
+            key_length_bytes = str(len(key_bytes)).encode()
+            response_parts.append(b"$" + key_length_bytes + b"\r\n" + key_bytes + b"\r\n")
+            # Second part: popped element
+
+            element = list_elements[0]
+            element_bytes = element.encode()
+            element_length_bytes = str(len(element_bytes)).encode()
+            response_parts.append(b"$" + element_length_bytes + b"\r\n" + element_bytes + b"\r\n")
+            response = b"*" + str(2).encode() + b"\r\n" + b"".join(response_parts)
+
+            client.sendall(response)
+            print(f"Sent: BLPOP immediate response for key '{list_key}' to {client_address}.")
+            # Send the response and exit
+            return True
+
+        # 4. If list is empty, BLOCK
+        else:
+            client_condition = threading.Condition()
+            client_condition.client_socket = client
+
+            with BLOCKING_CLIENTS_LOCK:
+                if list_key not in BLOCKING_CLIENTS:
+                    BLOCKING_CLIENTS[list_key] = []
+                BLOCKING_CLIENTS[list_key].append(client_condition)
+
+            # Wait for the condition to be notified
+            with client_condition:
+                print(f"Client {client_address} is blocking on BLPOP for key '{list_key}' with timeout {timeout}s.")
+                notified = client_condition.wait(timeout)
+            
+            if notified:
+                print(f"Client {client_address} unblocked and notified for BLPOP on key '{list_key}'.")
+                return True
+            else:
+                with BLOCKING_CLIENTS_LOCK:
+                    if list_key in BLOCKING_CLIENTS and client_condition in BLOCKING_CLIENTS[list_key]:
+                        BLOCKING_CLIENTS[list_key].remove(client_condition)
+                        if not BLOCKING_CLIENTS[list_key]:
+                            del BLOCKING_CLIENTS[list_key]
+                    
+                    response = b"*-1\r\n"  # RESP Null Array
+                    client.sendall(response)
+                    print(f"Sent: BLPOP timeout response for key '{list_key}' to {client_address}.")
+                    return True
 
     else:
         # Unknown command handler
