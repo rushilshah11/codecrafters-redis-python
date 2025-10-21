@@ -273,7 +273,24 @@ def load_rdb_to_datastore(rdb_path):
     datastore = {}
 
     with open(rdb_path, "rb") as f:
-        # ... (unchanged)
+        # 1. Read header
+        header = f.read(9)  # REDIS0011
+        if header != b"REDIS0011":
+            raise Exception("Unsupported RDB version")
+
+        # 2. Skip metadata sections (0xFA ...)
+        while True:
+            byte = f.read(1)
+            if not byte:
+                break
+            if byte == b'\xFA':
+                # read metadata key and value (string encoded)
+                _ = read_string(f)
+                _ = read_string(f)
+                continue
+            # not a metadata marker, rewind one byte and continue to DB parsing
+            f.seek(-1, 1)
+            break
 
         # 3. Read database sections
         while True:
@@ -317,8 +334,7 @@ def load_rdb_to_datastore(rdb_path):
             elif byte == b'\xFF':  # EOF
                 break
             else:
-                # This is where your error b'\x95' is raised.
-                # If the previous fix was applied, this should now be correctly aligned.
+                # Unexpected byte at top-level (not DB start and not EOF)
                 raise Exception(f"Unexpected byte in RDB: {byte}")
 
     return datastore
