@@ -327,6 +327,7 @@ def load_rdb_to_datastore(rdb_path):
 
                 # Key-value pairs
                 while True:
+                    expiry = None
                     type_byte = f.read(1)
                     if not type_byte or type_byte == b'\xFF':
                         break
@@ -337,7 +338,11 @@ def load_rdb_to_datastore(rdb_path):
                     key = read_string(f)
                     value = read_value(f, value_type)
                     if value_type == b'\x00':
-                        datastore[key] = value
+                        datastore[key] = {
+                            "type": "string",
+                            "value": value,
+                            "expiry": expiry
+                        }
             elif byte == b'\xFF':  # End of file section
                 # After 0xFF, 8 bytes of checksum follow. Consume them.
                 _ = f.read(8)
