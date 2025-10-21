@@ -1,8 +1,9 @@
+from ast import arguments
 import socket
 import threading
 import time
 from app.parser import parsed_resp_array
-from app.datastore import DATA_LOCK, DATA_STORE, lrange_rtn, prepend_to_list, remove_elements_from_list, size_of_list, append_to_list, existing_list, get_data_entry, set_list, set_string
+from app.datastore import BLOCKING_CLIENTS, BLOCKING_CLIENTS_LOCK, DATA_LOCK, DATA_STORE, lrange_rtn, prepend_to_list, remove_elements_from_list, size_of_list, append_to_list, existing_list, get_data_entry, set_list, set_string
 
 # --------------------------------------------------------------------------------
 
@@ -126,28 +127,67 @@ def handle_command(command: str, arguments: list, client: socket.socket) -> bool
         print(f"Sent: GET response for key '{key}' to {client_address}.")
     
     elif command == "RPUSH":
+        # 1. Argument and Key setup
         if not arguments:
-            response = b"-ERR wrong number of arguments for 'rpush' command\r\n"
-            client.sendall(response)
-            print(f"Sent: RPUSH argument error to {client_address}.")
+            # ... handle error ...
             return True
         
         list_key = arguments[0]
         elements = arguments[1:]
 
-        size = 0
-
+        # 2. Add all elements (Acquire/Release DATA_LOCK implicitly)
+        # Assuming append_to_list, set_list handle locking internally
         if existing_list(list_key):
             for element in elements:
                 append_to_list(list_key, element)
         else:
             set_list(list_key, elements, None)
 
-        size = size_of_list(list_key)
-        response = b":{size}\r\n".replace(b"{size}", str(size).encode())
-        client.sendall(response)
-        print(f"Sent: RPUSH response for key '{list_key}' to {client_address}.")
+        size_to_report = size_of_list(list_key) # Size after all RPUSHes
 
+        # 3. Check and Serve the longest waiting BLPOP client
+        blocked_client_condition = None
+
+        with BLOCKING_CLIENTS_LOCK:
+            # Use pop(0) for FIFO (longest waiting client)
+            if list_key in BLOCKING_CLIENTS and BLOCKING_CLIENTS[list_key]:
+                blocked_client_condition = BLOCKING_CLIENTS[list_key].pop(0)
+                # Keep the key in BLOCKING_CLIENTS if there are still waiters
+
+        if blocked_client_condition:
+            
+            # 3a. LPOP the element that was just pushed (Acquire/Release DATA_LOCK implicitly)
+            popped_elements = remove_elements_from_list(list_key, 1) 
+            
+            # Update the size the RPUSH client will see
+            size_to_report = size_of_list(list_key)
+            
+            if popped_elements:
+                popped_element = popped_elements[0]
+                
+                # 3b. Construct and Send BLPOP response to the BLOCKED client
+                key_resp = b"$" + str(len(list_key.encode())).encode() + b"\r\n" + list_key.encode() + b"\r\n"
+                element_resp = b"$" + str(len(popped_element.encode())).encode() + b"\r\n" + popped_element.encode() + b"\r\n"
+                blpop_response = b"*2\r\n" + key_resp + element_resp
+
+                blocked_client_socket = blocked_client_condition.client_socket
+                
+                # Send immediately, then notify
+                try:
+                    blocked_client_socket.sendall(blpop_response)
+                except Exception:
+                    # Handle case where the blocked client disconnected
+                    pass
+
+                # 3c. Wake up the blocked thread (must be inside its own lock context)
+                with blocked_client_condition:
+                    blocked_client_condition.notify() 
+
+        # 4. Final step: Send the RPUSH response (always sends the final size)
+        response = b":{size}\r\n".replace(b"{size}", str(size_to_report).encode())
+        client.sendall(response)
+        
+        return True
     elif command == "LRANGE":
         if not arguments or len(arguments) < 3:
             response = b"-ERR wrong number of arguments for 'lrange' command\r\n"
@@ -249,6 +289,69 @@ def handle_command(command: str, arguments: list, client: socket.socket) -> bool
 
         print(f"Sent: LPOP response '{list_elements}' for list '{list_key}' to {client_address}.")
 
+    elif command == "BLPOP":
+        # 1. Argument and Key setup
+        if len(arguments) != 2:
+            # ... handle error ...
+            return True
+        
+        list_key = arguments[0]
+        try:
+            # Redis timeout is in seconds, threading.Condition.wait() takes seconds
+            timeout = int(arguments[1]) 
+        except ValueError:
+            # ... handle error for non-integer timeout ...
+            return True
+        
+        # 2. Check for elements (Acquire/Release DATA_LOCK implicitly inside existing_list/size_of_list)
+        if size_of_list(list_key) > 0:
+            # If element exists, perform LPOP and return immediately.
+            list_elements = remove_elements_from_list(list_key, 1)
+            
+            # Since size > 0, we should get one element. Construct and send RESP Array [key, element]
+            if list_elements:
+                popped_element = list_elements[0]
+                
+                # Construct RESP Array *2...
+                key_resp = b"$" + str(len(list_key.encode())).encode() + b"\r\n" + list_key.encode() + b"\r\n"
+                element_resp = b"$" + str(len(popped_element.encode())).encode() + b"\r\n" + popped_element.encode() + b"\r\n"
+                response = b"*2\r\n" + key_resp + element_resp
+
+                client.sendall(response)
+                return True
+            # Fallthrough to block if list was found but unexpectedly empty (unlikely after check)
+
+        # 3. Blocking Logic (List is empty or non-existent)
+        client_condition = threading.Condition()
+        # Attach the client socket directly to the Condition object for retrieval by RPUSH
+        client_condition.client_socket = client
+
+        # Add client to the blocking registry (must be FIFO)
+        with BLOCKING_CLIENTS_LOCK:
+            BLOCKING_CLIENTS.setdefault(list_key, []).append(client_condition)
+
+        # Wait for notification or timeout
+        with client_condition:
+            # wait() returns True if notified, False if timeout
+            notified = client_condition.wait(timeout)
+        
+        # 4. Post-Blocking Cleanup and Response
+        if notified:
+            # If True, the client was served by the RPUSH thread (response already sent by RPUSH)
+            return True 
+        else:
+            # If False, timeout occurred. The client must be removed from the registry.
+            with BLOCKING_CLIENTS_LOCK:
+                # Safely remove, in case it was removed by RPUSH just before wait() returned False
+                if client_condition in BLOCKING_CLIENTS.get(list_key, []):
+                    BLOCKING_CLIENTS[list_key].remove(client_condition)
+                    if not BLOCKING_CLIENTS[list_key]:
+                        del BLOCKING_CLIENTS[list_key]
+            
+            # Send Null Array response
+            response = b"*-1\r\n"
+            client.sendall(response)
+            return True
     
 
 def handle_connection(client: socket.socket, client_address):
