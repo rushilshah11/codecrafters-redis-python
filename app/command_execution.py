@@ -11,18 +11,18 @@ from app.datastore import BLOCKING_CLIENTS, BLOCKING_CLIENTS_LOCK, DATA_LOCK, DA
 # --------------------------------------------------------------------------------
 
 # Default Redis config
-RDB_DIR = "."
-RDB_FILENAME = "dump.rdb"
+DIR = "."
+DB_FILENAME = "dump.rdb"
 
 # Parse args like --dir /path --dbfilename file.rdb
 args = sys.argv[1:]
 for i in range(0, len(args), 2):
     if args[i] == "--dir":
-        RDB_DIR = args[i + 1]
+        DIR = args[i + 1]
     elif args[i] == "--dbfilename":
-        RDB_FILENAME = args[i + 1]
+        DB_FILENAME = args[i + 1]
 
-RDB_PATH = os.path.join(RDB_DIR, RDB_FILENAME)
+RDB_PATH = os.path.join(DIR, DB_FILENAME)
 
 # Only load if file exists
 if os.path.exists(RDB_PATH):
