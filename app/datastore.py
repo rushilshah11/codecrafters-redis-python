@@ -22,8 +22,11 @@ def get_data_entry(key: str) -> dict | None:
 
         if data_entry is None:
             # Key does not exist
-            return None
+                return None
 
+        if data_entry is None:
+            return data_entry
+        
         expiry = data_entry.get("expiry")
         current_time_ms = int(time.time() * 1000)
 
