@@ -199,14 +199,23 @@ def read_key_from_rdb(rdb_path, target_key):
 
 
 # Helper to read a string (size-encoded)
+# datastore.py (modified read_string)
+
 def read_string(f):
-    length = read_length(f)
+    length_or_encoding_byte = read_length(f)
+    
+    # Check if the length is actually an encoding byte (prefix 0b11)
+    if (length_or_encoding_byte >> 6) == 0b11:
+        # It's an encoded string (C0-C3), delegate to read_encoded_string
+        return read_encoded_string(f, length_or_encoding_byte) # <<< Pass the encoding byte
+    
+    # Regular string: the result is the length
+    length = length_or_encoding_byte
     data = f.read(length)
     try:
         return data.decode("utf-8")
     except UnicodeDecodeError:
-        # Return raw bytes if it's not valid UTF-8
-        return data
+        return data # Return raw bytes if not valid UTF-8
 
 # Helper to read a size-encoded length
 def read_length(f):
@@ -225,7 +234,7 @@ def read_length(f):
         return int.from_bytes(f.read(4), "big")
     else:
         # special string encoding (C0–C3)
-        return int(read_encoded_string(f, first_byte))
+        return first_byte
 
 # Helper to read a value depending on its type
 def read_value(f, value_type):
