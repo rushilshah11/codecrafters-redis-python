@@ -7,6 +7,16 @@ from app.datastore import BLOCKING_CLIENTS, BLOCKING_CLIENTS_LOCK, DATA_LOCK, DA
 
 # --------------------------------------------------------------------------------
 
+import argparse
+
+parser = argparse.ArgumentParser()
+parser.add_argument('--dir', type=str, default='/tmp')
+parser.add_argument('--dbfilename', type=str, default='dump.rdb')
+args = parser.parse_args()
+
+DIR = args.dir
+DBFILENAME = args.dbfilename
+
 def handle_command(command: str, arguments: list, client: socket.socket) -> bool:
     """
     Executes a single command and sends the response.
@@ -312,7 +322,6 @@ def handle_command(command: str, arguments: list, client: socket.socket) -> bool
         response = b":{size}\r\n".replace(b"{size}", str(size_to_report).encode())
         client.sendall(response)
 
-
     elif command == "BLPOP":
         # 1. Argument and Key setup
         if len(arguments) != 2:
@@ -391,8 +400,24 @@ def handle_command(command: str, arguments: list, client: socket.socket) -> bool
             client.sendall(response)
             return True
 
-    
+    elif command == "CONFIG":
+        cmd = arguments[0].upper()
+        args = arguments[1]
 
+        if cmd == "GET" and args is not None:
+            if args == "dir":
+                value = DIR
+
+            elif args == "dbfilename":
+                value = DBFILENAME
+            else:
+                value = ""
+
+            value_bytes = value.encode()
+            length_bytes = str(len(value_bytes)).encode()
+            response = b"*2\r\n$" + str(len(args.encode())).encode() + b"\r\n" + args.encode() + b"\r\n$" + length_bytes + b"\r\n" + value_bytes + b"\r\n"
+            client.sendall(response)
+            print(f"Sent: CONFIG GET response for '{args}' to {client_address}.")
 def handle_connection(client: socket.socket, client_address):
     """
     This function is called for each new client connection.
