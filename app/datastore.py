@@ -256,25 +256,15 @@ def read_encoded_string(f, first_byte):
         raise Exception("C3 LZF compression not supported in this stage")
     else:
         raise Exception(f"Unknown string encoding: {hex(first_byte)}")
+    
+
+# datastore.py
 
 def load_rdb_to_datastore(rdb_path):
     datastore = {}
 
     with open(rdb_path, "rb") as f:
-        # 1. Read header
-        header = f.read(9)  # REDIS0011
-        if header != b"REDIS0011":
-            raise Exception("Unsupported RDB version")
-
-        # 2. Skip metadata sections
-        while True:
-            byte = f.read(1)
-            if byte == b'\xFA':  # metadata start
-                meta_key = read_string(f)
-                meta_val = read_string(f)
-            else:
-                f.seek(-1, 1)
-                break
+        # ... (unchanged)
 
         # 3. Read database sections
         while True:
@@ -282,23 +272,25 @@ def load_rdb_to_datastore(rdb_path):
             if byte == b'\xFE':  # start of DB section
                 db_index = read_length(f)
 
-                # --- START: ADDED FIX ---
-                # The next byte MUST be \xFB (Hash Table Size Info)
+                # --- FIX: Consume Hash Table Size Info (\xFB, size, size) ---
                 hash_size_marker = f.read(1)
-                if hash_size_marker != b'\xFB':
-                     raise Exception(f"Expected \xFB but got: {hash_size_marker}")
                 
-                # Read key-value hash table size (size encoded, just consume it)
-                key_value_hash_size = read_length(f)
-                
-                # Read expiry hash table size (size encoded, just consume it)
-                expiry_hash_size = read_length(f)
-                # --- END: ADDED FIX ---
+                # Check for \xFB marker
+                if hash_size_marker == b'\xFB':
+                    # Consume key-value hash table size
+                    read_length(f)
+                    # Consume expiry hash table size
+                    read_length(f)
+                else:
+                    # If it's not \xFB, it must be the first type_byte of the K-V pair.
+                    # Rewind and let the inner loop read it as type_byte.
+                    f.seek(-1, 1)
 
+                # Now read key-value pairs
                 while True:
                     type_byte = f.read(1)
-                    if type_byte == b'\xFF':  # EOF
-                        return datastore
+                    if not type_byte or type_byte == b'\xFF': # Stop reading key-value pairs
+                        break
 
                     # Optional expiry
                     if type_byte in (b'\xFC', b'\xFD'):
@@ -309,11 +301,15 @@ def load_rdb_to_datastore(rdb_path):
                     key = read_string(f)
                     value = read_value(f, value_type)
 
-                    datastore[key] = value
+                    # Only store strings, as other types are not fully supported by read_value
+                    if value_type == b'\x00': 
+                         datastore[key] = value
 
             elif byte == b'\xFF':  # EOF
                 break
             else:
+                # This is where your error b'\x95' is raised.
+                # If the previous fix was applied, this should now be correctly aligned.
                 raise Exception(f"Unexpected byte in RDB: {byte}")
 
     return datastore
