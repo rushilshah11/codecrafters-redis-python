@@ -201,7 +201,12 @@ def read_key_from_rdb(rdb_path, target_key):
 # Helper to read a string (size-encoded)
 def read_string(f):
     length = read_length(f)
-    return f.read(length).decode()
+    data = f.read(length)
+    try:
+        return data.decode("utf-8")
+    except UnicodeDecodeError:
+        # Return raw bytes if it's not valid UTF-8
+        return data
 
 # Helper to read a size-encoded length
 def read_length(f):
