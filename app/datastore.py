@@ -309,49 +309,44 @@ def load_rdb_to_datastore(rdb_path):
         # 3. Read database sections
         while True:
             byte = f.read(1)
-            if byte == b'\xFE':  # start of DB section
+            if not byte:
+                break  # End of file
+            if byte == b'\xFE':  # Database section
                 db_index = read_length(f)
 
-                # --- FIX: Consume Hash Table Size Info (\xFB, size, size) ---
+                # Hash table size info (optional)
                 hash_size_marker = f.read(1)
-                
-                # Check for \xFB marker
                 if hash_size_marker == b'\xFB':
-                    # Consume key-value hash table size
-                    read_length(f)
-                    # Consume expiry hash table size
-                    read_length(f)
+                    read_length(f)  # key-value hash table size
+                    read_length(f)  # expiry hash table size
                 else:
-                    # If it's not \xFB, it must be the first type_byte of the K-V pair.
-                    # Rewind and let the inner loop read it as type_byte.
                     f.seek(-1, 1)
 
-                # Now read key-value pairs
+                # Key-value pairs
                 while True:
                     type_byte = f.read(1)
-                    if not type_byte or type_byte == b'\xFF': # Stop reading key-value pairs
+                    if not type_byte or type_byte == b'\xFF':
                         break
-
-                    # Optional expiry
                     if type_byte in (b'\xFC', b'\xFD'):
                         expiry = read_expiry(f, type_byte)
-                        type_byte = f.read(1)  # actual value type
-
+                        type_byte = f.read(1)
                     value_type = type_byte
                     key = read_string(f)
                     value = read_value(f, value_type)
-
-                    # Only store strings, as other types are not fully supported by read_value
-                    if value_type == b'\x00': 
-                         datastore[key] = value
-
-            elif byte == b'\xFF':  # EOF/End of file section
-                # After 0xFF, 8 bytes of checksum follow. Consume them and break.
+                    if value_type == b'\x00':
+                        datastore[key] = value
+            elif byte == b'\xFF':  # End of file section
+                # After 0xFF, 8 bytes of checksum follow. Consume them.
                 _ = f.read(8)
+                # Ignore any extra bytes after checksum (be robust)
                 break
+            elif byte == b'\xFA':
+                # Metadata section (shouldn't appear here, but skip if present)
+                _ = read_string(f)
+                _ = read_string(f)
             else:
-                # Unexpected byte at top-level (not DB start and not EOF)
-                raise Exception(f"Unexpected byte in RDB: {byte}")
+                # Ignore any unknown/extra bytes after checksum
+                break
 
     return datastore
 
