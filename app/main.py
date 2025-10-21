@@ -9,6 +9,8 @@ def main():
 
     try:
         # This tells the operating system to create a listening point at $\texttt{localhost}$ (your computer) on port $\texttt{6379}$ (the standard Redis port).
+
+        
         server_socket = socket.create_server(("localhost", 6379), reuse_port=True)
         print("Server: Starting server on localhost:6379...")
         print("Server: Listening for connections...")

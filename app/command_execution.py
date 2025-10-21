@@ -1,5 +1,7 @@
 from ast import arguments
 import socket
+import sys
+import os
 import threading
 import time
 import argparse
@@ -8,16 +10,25 @@ from app.datastore import BLOCKING_CLIENTS, BLOCKING_CLIENTS_LOCK, DATA_LOCK, DA
 
 # --------------------------------------------------------------------------------
 
-parser = argparse.ArgumentParser()
-parser.add_argument('--dir', type=str, default='/tmp')
-parser.add_argument('--dbfilename', type=str, default='dump.rdb')
-args = parser.parse_args()
+# Default Redis config
+RDB_DIR = "."
+RDB_FILENAME = "dump.rdb"
 
-DIR = args.dir
-DBFILENAME = args.dbfilename
-RDB_PATH = f"{DIR}/{DBFILENAME}"
-with DATA_LOCK:
+# Parse args like --dir /path --dbfilename file.rdb
+args = sys.argv[1:]
+for i in range(0, len(args), 2):
+    if args[i] == "--dir":
+        RDB_DIR = args[i + 1]
+    elif args[i] == "--dbfilename":
+        RDB_FILENAME = args[i + 1]
+
+RDB_PATH = os.path.join(RDB_DIR, RDB_FILENAME)
+
+# Only load if file exists
+if os.path.exists(RDB_PATH):
     DATA_STORE.update(load_rdb_to_datastore(RDB_PATH))
+else:
+    print(f"RDB file not found at {RDB_PATH}, starting with empty DATA_STORE.")
 
 def handle_command(command: str, arguments: list, client: socket.socket) -> bool:
     """
