@@ -3,7 +3,7 @@ import socket
 import threading
 import time
 from app.parser import parsed_resp_array
-from app.datastore import BLOCKING_CLIENTS, BLOCKING_CLIENTS_LOCK, DATA_LOCK, DATA_STORE, lrange_rtn, prepend_to_list, remove_elements_from_list, size_of_list, append_to_list, existing_list, get_data_entry, set_list, set_string
+from app.datastore import BLOCKING_CLIENTS, BLOCKING_CLIENTS_LOCK, DATA_LOCK, DATA_STORE, cleanup_blocked_client, lrange_rtn, prepend_to_list, remove_elements_from_list, size_of_list, append_to_list, existing_list, get_data_entry, set_list, set_string
 
 # --------------------------------------------------------------------------------
 
@@ -333,7 +333,11 @@ def handle_command(command: str, arguments: list, client: socket.socket) -> bool
         # Wait for notification or timeout
         with client_condition:
             # wait() returns True if notified, False if timeout
-            notified = client_condition.wait(timeout)
+            if timeout == 0:
+                notified = client_condition.wait()  # Wait indefinitely
+            else:
+                notified = client_condition.wait(timeout)
+
         
         # 4. Post-Blocking Cleanup and Response
         if notified:
@@ -367,6 +371,7 @@ def handle_connection(client: socket.socket, client_address):
             data = client.recv(4096) 
             if not data:
                 print(f"Connection: Client {client_address} closed connection.")
+                cleanup_blocked_client(client)
                 break
                 
             print(f"Received: Raw bytes from {client_address}: {data!r}")

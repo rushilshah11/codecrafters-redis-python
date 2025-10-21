@@ -135,3 +135,13 @@ def remove_elements_from_list(key: str, count: int) -> list[str] | None:
                 return None
 
     return None
+
+
+def cleanup_blocked_client(client):
+    with BLOCKING_CLIENTS_LOCK:
+        for key, waiters in list(BLOCKING_CLIENTS.items()):
+            BLOCKING_CLIENTS[key] = [
+                cond for cond in waiters if getattr(cond, "client_socket", None) != client
+            ]
+            if not BLOCKING_CLIENTS[key]:
+                del BLOCKING_CLIENTS[key]
