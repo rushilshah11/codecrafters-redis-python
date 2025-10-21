@@ -4,7 +4,7 @@ import threading
 import time
 import argparse
 from app.parser import parsed_resp_array
-from app.datastore import BLOCKING_CLIENTS, BLOCKING_CLIENTS_LOCK, DATA_LOCK, DATA_STORE, cleanup_blocked_client, lrange_rtn, prepend_to_list, remove_elements_from_list, size_of_list, append_to_list, existing_list, get_data_entry, set_list, set_string
+from app.datastore import BLOCKING_CLIENTS, BLOCKING_CLIENTS_LOCK, DATA_LOCK, DATA_STORE, cleanup_blocked_client, load_rdb_to_datastore, lrange_rtn, prepend_to_list, remove_elements_from_list, size_of_list, append_to_list, existing_list, get_data_entry, set_list, set_string
 
 # --------------------------------------------------------------------------------
 
@@ -15,6 +15,9 @@ args = parser.parse_args()
 
 DIR = args.dir
 DBFILENAME = args.dbfilename
+RDB_PATH = f"{DIR}/{DBFILENAME}"
+with DATA_LOCK:
+    DATA_STORE.update(load_rdb_to_datastore(RDB_PATH))
 
 def handle_command(command: str, arguments: list, client: socket.socket) -> bool:
     """

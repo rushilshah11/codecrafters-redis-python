@@ -136,7 +136,6 @@ def remove_elements_from_list(key: str, count: int) -> list[str] | None:
 
     return None
 
-
 def cleanup_blocked_client(client):
     with BLOCKING_CLIENTS_LOCK:
         for key, waiters in list(BLOCKING_CLIENTS.items()):
@@ -145,3 +144,159 @@ def cleanup_blocked_client(client):
             ]
             if not BLOCKING_CLIENTS[key]:
                 del BLOCKING_CLIENTS[key]
+
+def read_key_from_rdb(rdb_path, target_key):
+    with open(rdb_path, "rb") as f:
+        # 1. Read header
+        header = f.read(9)  # REDIS0011
+        if header != b"REDIS0011":
+            raise Exception("Unsupported RDB version")
+
+        # 2. Skip metadata sections
+        while True:
+            byte = f.read(1)
+            if byte == b'\xFA':  # metadata start
+                # Read metadata key and value
+                meta_key = read_string(f)
+                meta_val = read_string(f)
+            else:
+                # Not metadata, rewind one byte and break
+                f.seek(-1, 1)
+                break
+
+        # 3. Read database sections
+        while True:
+            byte = f.read(1)
+            if byte == b'\xFE':  # start of DB section
+                db_index = read_length(f)  # size-encoded DB index
+
+                # Read key-value pairs
+                while True:
+                    type_byte = f.read(1)
+                    if type_byte == b'\xFF':  # end of RDB
+                        return None
+
+                    # Optional expiry
+                    if type_byte in (b'\xFC', b'\xFD'):
+                        expiry = read_expiry(f, type_byte)
+                        type_byte = f.read(1)  # actual value type
+
+                    value_type = type_byte  # 1 byte
+                    key = read_string(f)
+
+                    value = read_value(f, value_type)
+
+                    # 4. Check if this is the key we want
+                    if key == target_key:
+                        return value
+
+                    # else, continue to next key-value
+            elif byte == b'\xFF':  # EOF
+                break
+            else:
+                raise Exception("Unexpected byte in RDB")
+    return None
+
+
+# Helper to read a string (size-encoded)
+def read_string(f):
+    length = read_length(f)
+    return f.read(length).decode()
+
+# Helper to read a size-encoded length
+def read_length(f):
+    first_byte = f.read(1)[0]
+    prefix = first_byte >> 6  # first 2 bits
+
+    if prefix == 0b00:
+        # small length
+        return first_byte & 0x3F
+    elif prefix == 0b01:
+        # 14-bit length
+        second_byte = f.read(1)[0]
+        return ((first_byte & 0x3F) << 8) | second_byte
+    elif prefix == 0b10:
+        # 32-bit length
+        return int.from_bytes(f.read(4), "big")
+    else:
+        # special string encoding (C0–C3)
+        return read_encoded_string(f, first_byte)
+
+# Helper to read a value depending on its type
+def read_value(f, value_type):
+    if value_type == b'\x00':  # string
+        return read_string(f)
+    # other types like lists/hashes could be added later
+    return None
+
+# Helper to read expiry timestamps
+def read_expiry(f, type_byte):
+    if type_byte == b'\xFC':  # ms
+        return int.from_bytes(f.read(8), "little")
+    elif type_byte == b'\xFD':  # sec
+        return int.from_bytes(f.read(4), "little")
+
+def read_encoded_string(f, first_byte):
+    encoding_type = first_byte & 0x3F  # last 6 bits
+    if encoding_type == 0x00:  # C0 = 8-bit int
+        val = int.from_bytes(f.read(1), "big")
+        return str(val)
+    elif encoding_type == 0x01:  # C1 = 16-bit int
+        val = int.from_bytes(f.read(2), "little")
+        return str(val)
+    elif encoding_type == 0x02:  # C2 = 32-bit int
+        val = int.from_bytes(f.read(4), "little")
+        return str(val)
+    elif encoding_type == 0x03:  # C3 = LZF compressed
+        raise Exception("C3 LZF compression not supported in this stage")
+    else:
+        raise Exception(f"Unknown string encoding: {hex(first_byte)}")
+
+def load_rdb_to_datastore(rdb_path):
+    datastore = {}
+
+    with open(rdb_path, "rb") as f:
+        # 1. Read header
+        header = f.read(9)  # REDIS0011
+        if header != b"REDIS0011":
+            raise Exception("Unsupported RDB version")
+
+        # 2. Skip metadata sections
+        while True:
+            byte = f.read(1)
+            if byte == b'\xFA':  # metadata start
+                meta_key = read_string(f)
+                meta_val = read_string(f)
+            else:
+                f.seek(-1, 1)
+                break
+
+        # 3. Read database sections
+        while True:
+            byte = f.read(1)
+            if byte == b'\xFE':  # start of DB section
+                db_index = read_length(f)
+
+                while True:
+                    type_byte = f.read(1)
+                    if type_byte == b'\xFF':  # EOF
+                        return datastore
+
+                    # Optional expiry
+                    if type_byte in (b'\xFC', b'\xFD'):
+                        expiry = read_expiry(f, type_byte)
+                        type_byte = f.read(1)  # actual value type
+
+                    value_type = type_byte
+                    key = read_string(f)
+                    value = read_value(f, value_type)
+
+                    datastore[key] = value
+
+            elif byte == b'\xFF':  # EOF
+                break
+            else:
+                raise Exception(f"Unexpected byte in RDB: {byte}")
+
+    return datastore
+
