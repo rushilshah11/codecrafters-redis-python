@@ -126,68 +126,6 @@ def handle_command(command: str, arguments: list, client: socket.socket) -> bool
         client.sendall(response)
         print(f"Sent: GET response for key '{key}' to {client_address}.")
     
-    elif command == "RPUSH":
-        # 1. Argument and Key setup
-        if not arguments:
-            # ... handle error ...
-            return True
-        
-        list_key = arguments[0]
-        elements = arguments[1:]
-
-        # 2. Add all elements (Acquire/Release DATA_LOCK implicitly)
-        # Assuming append_to_list, set_list handle locking internally
-        if existing_list(list_key):
-            for element in elements:
-                append_to_list(list_key, element)
-        else:
-            set_list(list_key, elements, None)
-
-        size_to_report = size_of_list(list_key) # Size after all RPUSHes
-
-        # 3. Check and Serve the longest waiting BLPOP client
-        blocked_client_condition = None
-
-        with BLOCKING_CLIENTS_LOCK:
-            # Use pop(0) for FIFO (longest waiting client)
-            if list_key in BLOCKING_CLIENTS and BLOCKING_CLIENTS[list_key]:
-                blocked_client_condition = BLOCKING_CLIENTS[list_key].pop(0)
-                # Keep the key in BLOCKING_CLIENTS if there are still waiters
-
-        if blocked_client_condition:
-            
-            # 3a. LPOP the element that was just pushed (Acquire/Release DATA_LOCK implicitly)
-            popped_elements = remove_elements_from_list(list_key, 1) 
-            
-            # Update the size the RPUSH client will see
-            # size_to_report = size_of_list(list_key)
-            
-            if popped_elements:
-                popped_element = popped_elements[0]
-                
-                # 3b. Construct and Send BLPOP response to the BLOCKED client
-                key_resp = b"$" + str(len(list_key.encode())).encode() + b"\r\n" + list_key.encode() + b"\r\n"
-                element_resp = b"$" + str(len(popped_element.encode())).encode() + b"\r\n" + popped_element.encode() + b"\r\n"
-                blpop_response = b"*2\r\n" + key_resp + element_resp
-
-                blocked_client_socket = blocked_client_condition.client_socket
-                
-                # Send immediately, then notify
-                try:
-                    blocked_client_socket.sendall(blpop_response)
-                except Exception:
-                    # Handle case where the blocked client disconnected
-                    pass
-
-                # 3c. Wake up the blocked thread (must be inside its own lock context)
-                with blocked_client_condition:
-                    blocked_client_condition.notify() 
-
-        # 4. Final step: Send the RPUSH response (always sends the final size)
-        response = b":{size}\r\n".replace(b"{size}", str(size_to_report).encode())
-        client.sendall(response)
-        
-        return True
     elif command == "LRANGE":
         if not arguments or len(arguments) < 3:
             response = b"-ERR wrong number of arguments for 'lrange' command\r\n"
@@ -289,73 +227,170 @@ def handle_command(command: str, arguments: list, client: socket.socket) -> bool
 
         print(f"Sent: LPOP response '{list_elements}' for list '{list_key}' to {client_address}.")
 
+    elif command == "RPUSH":
+        # 1. Argument and Key setup
+        if not arguments:
+            # No arguments -> ignore / error (your code returns True and keeps listening)
+            return True
+        
+        list_key = arguments[0]
+        elements = arguments[1:]
+
+        # 2. Add all elements to the list (the helper functions handle DATA_LOCK internally)
+        #    - If the key already holds a list, append each pushed element.
+        #    - Otherwise create a new list key with the elements.
+        #    This models Redis: RPUSH adds elements to the tail.
+        if existing_list(list_key):
+            for element in elements:
+                append_to_list(list_key, element)
+        else:
+            set_list(list_key, elements, None)
+
+        # IMPORTANT: compute the size *after insertion* and store it.
+        # Redis's RPUSH returns the list length *after* the push operation,
+        # even if the server immediately serves a blocked client afterwards.
+        size_to_report = size_of_list(list_key)  # Size that must be returned to RPUSH caller
+
+        # 3. Check if there are blocked clients waiting on this list
+        #    We will wake up the longest-waiting client (FIFO). The structure is:
+        #      BLOCKING_CLIENTS = { 'list_key': [cond1, cond2, ...], ... }
+        #    Each entry is a threading.Condition used to notify the blocked thread.
+        blocked_client_condition = None
+
+        # Acquire the BLOCKING_CLIENTS_LOCK while we inspect / modify the shared dict.
+        # This prevents races where multiple RPUSH/BLPOP threads change the waiters concurrently.
+        with BLOCKING_CLIENTS_LOCK:
+            # If there are waiters, pop the first one (FIFO: the longest-waiting client).
+            if list_key in BLOCKING_CLIENTS and BLOCKING_CLIENTS[list_key]:
+                blocked_client_condition = BLOCKING_CLIENTS[list_key].pop(0)
+                # Note: we intentionally *don't* delete the list_key here even if empty;
+                # your code deletes the dict key later when cleaning up waiters on timeout.
+                # The critical property is FIFO ordering via pop(0).
+
+        if blocked_client_condition:
+            # 3a. When serving a blocked client, we must remove an element from the list.
+            #     remove_elements_from_list pops from the head (LPOP semantics).
+            #     This returns the element that will be sent to the blocked client.
+            popped_elements = remove_elements_from_list(list_key, 1) 
+            
+            # (You already computed size_to_report before popping; do NOT recalc it here,
+            #  since Redis returns the size *after insertion*, not after serving waiters.)
+
+            if popped_elements:
+                popped_element = popped_elements[0]
+                
+                # 3b. Build the RESP array that BLPOP expects:
+                #     *2\r\n
+                #     $<len(key)>\r\n<key>\r\n
+                #     $<len(element)>\r\n<element>\r\n
+                key_resp = b"$" + str(len(list_key.encode())).encode() + b"\r\n" + list_key.encode() + b"\r\n"
+                element_resp = b"$" + str(len(popped_element.encode())).encode() + b"\r\n" + popped_element.encode() + b"\r\n"
+                blpop_response = b"*2\r\n" + key_resp + element_resp
+
+                blocked_client_socket = blocked_client_condition.client_socket
+                
+                # Send the BLPOP response directly to the blocked client's socket.
+                # We do this *before* notify() so that when the blocked thread wakes it
+                # can safely assume the response has already been sent (avoids a race).
+                try:
+                    blocked_client_socket.sendall(blpop_response)
+                except Exception:
+                    # If the blocked client disconnected between RPUSH discovering it and us sending,
+                    # sendall will fail; we catch and ignore because we still need to notify the thread
+                    # (or let its wait time out and the cleanup code remove it).
+                    pass
+
+                # 3c. Wake up the blocked thread by notifying its Condition.
+                #      According to Condition semantics, notify() should be called while
+                #      holding the Condition's own lock, so we enter the Condition context.
+                #      The blocked thread is waiting on the same Condition and will be awakened.
+                with blocked_client_condition:
+                    blocked_client_condition.notify() 
+
+        # 4. Final step: Send the RPUSH response (always the size immediately after insertion)
+        #    This is the value clients expect (e.g., ":1\r\n")
+        response = b":{size}\r\n".replace(b"{size}", str(size_to_report).encode())
+        client.sendall(response)
+
+
     elif command == "BLPOP":
         # 1. Argument and Key setup
         if len(arguments) != 2:
-            # ... handle error ...
+            # Wrong number of args
             return True
         
         list_key = arguments[0]
         try:
-            # Redis timeout is in seconds, threading.Condition.wait() takes seconds
+            # Redis accepts fractional seconds for the timeout (e.g., 0.4).
+            # threading.Condition.wait() accepts float seconds as well, so use float().
             timeout = float(arguments[1]) 
         except ValueError:
-            # ... handle error for non-integer timeout ...
+            # If parsing fails, send an error to the client (avoid silent failure).
+            response = b"-ERR timeout is not a float\r\n"
+            client.sendall(response)
             return True
         
-        # 2. Check for elements (Acquire/Release DATA_LOCK implicitly inside existing_list/size_of_list)
+        # 2. Fast path: if the list already has elements, pop and return immediately.
+        #    This mirrors Redis: BLPOP behaves like LPOP when the list is non-empty.
         if size_of_list(list_key) > 0:
-            # If element exists, perform LPOP and return immediately.
             list_elements = remove_elements_from_list(list_key, 1)
             
-            # Since size > 0, we should get one element. Construct and send RESP Array [key, element]
             if list_elements:
                 popped_element = list_elements[0]
                 
-                # Construct RESP Array *2...
+                # Construct the RESP array [key, popped_element] and send it.
                 key_resp = b"$" + str(len(list_key.encode())).encode() + b"\r\n" + list_key.encode() + b"\r\n"
                 element_resp = b"$" + str(len(popped_element.encode())).encode() + b"\r\n" + popped_element.encode() + b"\r\n"
                 response = b"*2\r\n" + key_resp + element_resp
 
                 client.sendall(response)
                 return True
-            # Fallthrough to block if list was found but unexpectedly empty (unlikely after check)
+            # If remove_elements_from_list returns None unexpectedly, fall through to blocking.
+            # (This is unlikely if size_of_list returned > 0, but handling it avoids crashes.)
 
-        # 3. Blocking Logic (List is empty or non-existent)
+        # 3. Blocking logic (list empty / non-existent)
+        #    We create a Condition object that the current thread will wait on.
         client_condition = threading.Condition()
-        # Attach the client socket directly to the Condition object for retrieval by RPUSH
+        # Store the client socket on the Condition so RPUSH can send the response
+        # directly to the waiting client's socket when an element arrives.
         client_condition.client_socket = client
 
-        # Add client to the blocking registry (must be FIFO)
+        # Register this Condition in BLOCKING_CLIENTS under the list_key.
+        # Use BLOCKING_CLIENTS_LOCK to guard concurrent access to the shared dict.
         with BLOCKING_CLIENTS_LOCK:
             BLOCKING_CLIENTS.setdefault(list_key, []).append(client_condition)
 
-        # Wait for notification or timeout
+        # Wait for notification or timeout.
+        # Note: timeout==0 handled as "block indefinitely" (wait() without timeout).
         with client_condition:
-            # wait() returns True if notified, False if timeout
             if timeout == 0:
-                notified = client_condition.wait()  # Wait indefinitely
+                # Block forever until notify()
+                notified = client_condition.wait()
             else:
+                # Block up to `timeout` seconds; wait() returns True if notified, False if timed out
                 notified = client_condition.wait(timeout)
 
-        
-        # 4. Post-Blocking Cleanup and Response
+        # 4. Post-block handling
         if notified:
-            # If True, the client was served by the RPUSH thread (response already sent by RPUSH)
+            # If True, RPUSH already sent the BLPOP response to the socket, so there's
+            # nothing more to do here. Just return True and continue listening for commands.
             return True 
         else:
-            # If False, timeout occurred. The client must be removed from the registry.
+            # Timeout occurred. We must remove this client from the BLOCKING_CLIENTS registry
+            # because RPUSH may never visit it (or might have visited it but failed to notify).
             with BLOCKING_CLIENTS_LOCK:
-                # Safely remove, in case it was removed by RPUSH just before wait() returned False
+                # Defensive: only remove if it's still present (RPUSH could have popped it)
                 if client_condition in BLOCKING_CLIENTS.get(list_key, []):
                     BLOCKING_CLIENTS[list_key].remove(client_condition)
+                    # If no more waiters, delete empty list to keep the dict tidy
                     if not BLOCKING_CLIENTS[list_key]:
                         del BLOCKING_CLIENTS[list_key]
             
-            # Send Null Array response
+            # Send Null Array response on timeout: Redis returns "*-1\r\n" for BLPOP timeout.
             response = b"*-1\r\n"
             client.sendall(response)
             return True
+
     
 
 def handle_connection(client: socket.socket, client_address):
