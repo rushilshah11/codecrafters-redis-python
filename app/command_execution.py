@@ -160,7 +160,7 @@ def handle_command(command: str, arguments: list, client: socket.socket) -> bool
             popped_elements = remove_elements_from_list(list_key, 1) 
             
             # Update the size the RPUSH client will see
-            size_to_report = size_of_list(list_key)
+            # size_to_report = size_of_list(list_key)
             
             if popped_elements:
                 popped_element = popped_elements[0]
