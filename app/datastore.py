@@ -147,10 +147,17 @@ def cleanup_blocked_client(client):
 
 def read_key_from_rdb(rdb_path, target_key):
     with open(rdb_path, "rb") as f:
-        # 1. Read header
-        header = f.read(9)  # REDIS0011
-        if header != b"REDIS0011":
+        # 1. Read header (magic + 4-byte version). Do not consume the rest of the file.
+        magic = f.read(5)
+        if magic != b"REDIS":
+            raise Exception("Unsupported RDB file: missing 'REDIS' magic")
+        version = f.read(4)
+        if not version or len(version) < 4:
             raise Exception("Unsupported RDB version")
+        # optionally consume a single newline after the version
+        maybe_nl = f.read(1)
+        if maybe_nl not in (b"\n", b"\r", b""):
+            f.seek(-1, 1)
 
         # 2. Skip metadata sections
         while True:
@@ -273,10 +280,17 @@ def load_rdb_to_datastore(rdb_path):
     datastore = {}
 
     with open(rdb_path, "rb") as f:
-        # 1. Read header
-        header = f.read(9)  # REDIS0011
-        if header != b"REDIS0011":
+        # 1. Read header (magic + 4-byte version). Do not consume the rest of the file.
+        magic = f.read(5)
+        if magic != b"REDIS":
+            raise Exception("Unsupported RDB file: missing 'REDIS' magic")
+        version = f.read(4)
+        if not version or len(version) < 4:
             raise Exception("Unsupported RDB version")
+        # optionally consume a single newline after the version
+        maybe_nl = f.read(1)
+        if maybe_nl not in (b"\n", b"\r", b""):
+            f.seek(-1, 1)
 
         # 2. Skip metadata sections (0xFA ...)
         while True:
