@@ -125,9 +125,13 @@ def handle_command(command: str, arguments: list, client: socket.socket) -> bool
         client.sendall(response)
         print(f"Sent: GET response for key '{key}' to {client_address}.")
     
-    # command_execution.py: RPUSH handler
+    # ... (Inside handle_command function)
+
     elif command == "RPUSH":
-        # ... (Argument checks and variable setup)
+        if not arguments:
+            response = b"-ERR wrong number of arguments for 'rpush' command\r\n"
+            client.sendall(response)
+            return True
         
         list_key = arguments[0]
         elements = arguments[1:]
@@ -139,8 +143,8 @@ def handle_command(command: str, arguments: list, client: socket.socket) -> bool
         else:
             set_list(list_key, elements, None)
 
-        # The size *before* a potential BLPOP pop (used for the RPUSH response)
-        initial_size = size_of_list(list_key)
+        # Size after adding, before serving a blocked client
+        size_to_report = size_of_list(list_key)
         
         blocked_client_condition = None
 
@@ -151,29 +155,26 @@ def handle_command(command: str, arguments: list, client: socket.socket) -> bool
                 if not BLOCKING_CLIENTS[list_key]:
                     del BLOCKING_CLIENTS[list_key]
 
-        # 3. If a blocked client exists, serve them first.
+        # 3. If a blocked client exists, serve them
         if blocked_client_condition:
             
-            # 3a. Perform LPOP (removes element added in step 1)
-            popped_elements = remove_elements_from_list(list_key, 1) # Pop only the first one
-            
-            # The RPUSH response should reflect the size *after* this LPOP
-            final_size = size_of_list(list_key) 
+            # 3a. Perform LPOP (removes element added in step 1, serves BLPOP)
+            popped_elements = remove_elements_from_list(list_key, 1) 
             
             if popped_elements:
                 popped_element = popped_elements[0]
                 
-                # 3b. Construct the BLPOP response array: [key, element]
+                # Update the size to report to the RPUSH client (it's 1 less)
+                size_to_report = size_of_list(list_key) # This is the final size
+
+                # 3b. Construct and Send BLPOP response to the BLOCKED client
                 key_bytes = list_key.encode()
                 element_bytes = popped_element.encode()
 
                 key_resp = b"$" + str(len(key_bytes)).encode() + b"\r\n" + key_bytes + b"\r\n"
                 element_resp = b"$" + str(len(element_bytes)).encode() + b"\r\n" + element_bytes + b"\r\n"
-
-                # RESP Array: *2\r\n$len\r\nkey\r\n$len\r\nelement\r\n
                 blpop_response = b"*2\r\n" + key_resp + element_resp
 
-                # 3c. Send response to the *blocked client's socket*
                 blocked_client_socket = blocked_client_condition.client_socket
                 try:
                     blocked_client_socket.sendall(blpop_response)
@@ -181,26 +182,21 @@ def handle_command(command: str, arguments: list, client: socket.socket) -> bool
                 except Exception as e:
                     print(f"Error sending BLPOP response to blocked client: {e}")
 
-                # 3d. Notify the blocked client's thread to wake up
+                # 3c. Notify the blocked client's thread to wake up
                 with blocked_client_condition:
-                    # Setting notified to True tells the blocked thread it was served
                     blocked_client_condition.notify() 
 
-            # 4. Send the RPUSH response to the *RPUSH client*
-            # Use final_size here, which accounts for the LPOP above.
-            response = b":{size}\r\n".replace(b"{size}", str(final_size).encode())
-            client.sendall(response)
-            print(f"Sent: RPUSH response for key '{list_key}' to {client_address}.")
-            return True
+        # 4. FINAL STEP: Send the RPUSH response to the RPUSH client
+        # This uses the size_to_report, which is either the initial size (if no block)
+        # or the final size after serving the blocked client (if block occurred).
+        response = b":{size}\r\n".replace(b"{size}", str(size_to_report).encode())
+        client.sendall(response)
+        print(f"Sent: RPUSH response for key '{list_key}' to {client_address}.")
+        
+        # Now, return True, only after the RPUSH client has received its response.
+        return True 
 
-        # 5. If NO blocked client, send RPUSH response using initial_size
-        else:
-            response = b":{size}\r\n".replace(b"{size}", str(initial_size).encode())
-            client.sendall(response)
-            print(f"Sent: RPUSH response for key '{list_key}' to {client_address}.")
-            return True
-                
-        # ... (If no blocked clients, or after serving the blocked client, send RPUSH response)
+# ... (End of RPUSH handler)
 
     elif command == "LRANGE":
         if not arguments or len(arguments) < 3:
