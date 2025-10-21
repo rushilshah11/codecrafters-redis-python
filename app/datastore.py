@@ -345,7 +345,9 @@ def load_rdb_to_datastore(rdb_path):
                     if value_type == b'\x00': 
                          datastore[key] = value
 
-            elif byte == b'\xFF':  # EOF
+            elif byte == b'\xFF':  # EOF/End of file section
+                # After 0xFF, 8 bytes of checksum follow. Consume them and break.
+                _ = f.read(8)
                 break
             else:
                 # Unexpected byte at top-level (not DB start and not EOF)
