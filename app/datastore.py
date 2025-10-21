@@ -5,9 +5,6 @@ import threading
 # preventing data corruption (race conditions) when multiple clients run SET simultaneously.
 DATA_LOCK = threading.Lock()
 
-BLOCKING_CLIENTS_LOCK = threading.Lock()
-BLOCKING_CLIENTS = {}
-
 # The central storage. Keys map to a dictionary containing value, type, and expiry metadata.
 # Example: {'mykey': {'type': 'string', 'value': 'myvalue', 'expiry': 1731671220000}}
 DATA_STORE = {}
@@ -127,19 +124,11 @@ def remove_elements_from_list(key: str, count: int) -> list[str] | None:
     with DATA_LOCK:
         data_entry = DATA_STORE.get(key)
         if data_entry and data_entry.get("type") == "list":
-            # Check if there are any elements to pop (count is guaranteed to be 1 in RPUSH)
-            if data_entry["value"]: 
-                popped = [data_entry["value"].pop(0)] # Pop exactly one element
-                
-                # Crucial Redis rule: Delete the key if the list becomes empty
-                if not data_entry["value"]: 
-                    del DATA_STORE[key]
-                    
-                return popped # Returns ['blueberry']
+            if data_entry["value"]:
+                return [data_entry["value"].pop(0) for _ in range(count)]
             
-            # This path (list exists but is empty) should not be hit right after RPUSH
-            if not data_entry["value"]: 
+            if not data_entry["value"]:
                 del DATA_STORE[key]
-                return None # Changed from [] to None based on your original LPOP logic
-        
-        return None
+                return None
+
+    return None
