@@ -2,12 +2,11 @@ from ast import arguments
 import socket
 import threading
 import time
+import argparse
 from app.parser import parsed_resp_array
 from app.datastore import BLOCKING_CLIENTS, BLOCKING_CLIENTS_LOCK, DATA_LOCK, DATA_STORE, cleanup_blocked_client, lrange_rtn, prepend_to_list, remove_elements_from_list, size_of_list, append_to_list, existing_list, get_data_entry, set_list, set_string
 
 # --------------------------------------------------------------------------------
-
-import argparse
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--dir', type=str, default='/tmp')
@@ -401,23 +400,80 @@ def handle_command(command: str, arguments: list, client: socket.socket) -> bool
             return True
 
     elif command == "CONFIG":
-        cmd = arguments[0].upper()
-        args = arguments[1]
-
-        if cmd == "GET" and args is not None:
-            if args == "dir":
-                value = DIR
-
-            elif args == "dbfilename":
-                value = DBFILENAME
-            else:
-                value = ""
-
-            value_bytes = value.encode()
-            length_bytes = str(len(value_bytes)).encode()
-            response = b"*2\r\n$" + str(len(args.encode())).encode() + b"\r\n" + args.encode() + b"\r\n$" + length_bytes + b"\r\n" + value_bytes + b"\r\n"
+        if len(arguments) != 2 or arguments[0].upper() != "GET":
+            # Handle wrong arguments or non-GET subcommands
+            response = b"-ERR wrong number of arguments for 'CONFIG GET' command\r\n"
             client.sendall(response)
-            print(f"Sent: CONFIG GET response for '{args}' to {client_address}.")
+            return True
+
+        # 1. Extract the parameter name requested by the client
+        param_name = arguments[1].lower()
+        value = None
+
+        if param_name == "dir":
+            value = DIR
+        elif param_name == "dbfilename":
+            value = DBFILENAME
+
+        # 2. Handle unknown parameters
+        if value is None:
+            # Per Redis spec, CONFIG GET for an unknown param returns nil array or empty array.
+            # A simple response of the parameter name and empty string is often used in clones.
+            value = ""
+            # We should still use the param_name for the first element
+            
+        
+        # --- Correct RESP Serialization ---
+        
+        # 3. Encode strings
+        param_bytes = param_name.encode('utf-8')
+        value_bytes = value.encode('utf-8')
+        
+        # 4. Construct the RESP Array: *2 [param_name] [value]
+        response = (
+            # *2 (Array of 2 elements)
+            b"*2\r\n" +
+            # $len(param_name)
+            b"$" + str(len(param_bytes)).encode('utf-8') + b"\r\n" + 
+            # param_name
+            param_bytes + b"\r\n" +
+            # $len(value)
+            b"$" + str(len(value_bytes)).encode('utf-8') + b"\r\n" +
+            # value
+            value_bytes + b"\r\n"
+        )
+
+        client.sendall(response)
+        print(f"Sent: CONFIG GET response for '{param_name}' to {client_address}.")
+
+    elif command == "KEYS":
+        if len(arguments) != 1:
+            response = b"-ERR wrong number of arguments for 'KEYS' command\r\n"
+            client.sendall(response)
+            print(f"Sent: KEYS argument error to {client_address}.")
+            return True
+        
+        pattern = arguments[0]
+        
+        # Simple pattern matching: only supports '*' wildcard
+        with DATA_LOCK:
+            matching_keys = []
+            for key in DATA_STORE.keys():
+                if pattern == "*" or pattern == key:
+                    matching_keys.append(key)
+
+        # Construct RESP Array response
+        response_parts = []
+        for key in matching_keys:
+            key_bytes = key.encode()
+            length_bytes = str(len(key_bytes)).encode()
+            response_parts.append(b"$" + length_bytes + b"\r\n" + key_bytes + b"\r\n")
+
+        response = b"*" + str(len(matching_keys)).encode() + b"\r\n" + b"".join(response_parts)
+        client.sendall(response)
+        print(f"Sent: KEYS response for pattern '{pattern}' to {client_address}.")
+
+
 def handle_connection(client: socket.socket, client_address):
     """
     This function is called for each new client connection.
