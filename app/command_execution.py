@@ -298,7 +298,7 @@ def handle_command(command: str, arguments: list, client: socket.socket) -> bool
         list_key = arguments[0]
         try:
             # Redis timeout is in seconds, threading.Condition.wait() takes seconds
-            timeout = int(arguments[1]) 
+            timeout = float(arguments[1]) 
         except ValueError:
             # ... handle error for non-integer timeout ...
             return True
