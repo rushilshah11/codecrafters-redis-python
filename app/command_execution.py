@@ -125,50 +125,45 @@ def handle_command(command: str, arguments: list, client: socket.socket) -> bool
         client.sendall(response)
         print(f"Sent: GET response for key '{key}' to {client_address}.")
     
+    # command_execution.py: RPUSH handler
     elif command == "RPUSH":
-        if not arguments:
-            response = b"-ERR wrong number of arguments for 'rpush' command\r\n"
-            client.sendall(response)
-            print(f"Sent: RPUSH argument error to {client_address}.")
-            return True
+        # ... (Argument checks and variable setup)
         
         list_key = arguments[0]
         elements = arguments[1:]
 
-        size = 0
-
+        # 1. Add all elements
         if existing_list(list_key):
             for element in elements:
                 append_to_list(list_key, element)
         else:
             set_list(list_key, elements, None)
 
-        size = size_of_list(list_key)
-        response = b":{size}\r\n".replace(b"{size}", str(size).encode())
-        client.sendall(response)
-        print(f"Sent: RPUSH response for key '{list_key}' to {client_address}.")
-
+        # The size *before* a potential BLPOP pop (used for the RPUSH response)
+        initial_size = size_of_list(list_key)
+        
         blocked_client_condition = None
 
+        # 2. Check for blocked clients and retrieve the first one
         with BLOCKING_CLIENTS_LOCK:
             if list_key in BLOCKING_CLIENTS and BLOCKING_CLIENTS[list_key]:
-                # Get the longest waiting client (FIFO)
                 blocked_client_condition = BLOCKING_CLIENTS[list_key].pop(0)
                 if not BLOCKING_CLIENTS[list_key]:
                     del BLOCKING_CLIENTS[list_key]
 
+        # 3. If a blocked client exists, serve them first.
         if blocked_client_condition:
-            # A blocked client was found, serve them immediately using the newly added element(s)
             
-            # 1. Perform LPOP on the key to get the element
-            # This is safe because RPUSH completed, ensuring an element is there.
-            # We only pop one element for the BLPOP client.
-            popped_elements = remove_elements_from_list(list_key, 1)
+            # 3a. Perform LPOP (removes element added in step 1)
+            popped_elements = remove_elements_from_list(list_key, 1) # Pop only the first one
+            
+            # The RPUSH response should reflect the size *after* this LPOP
+            final_size = size_of_list(list_key) 
             
             if popped_elements:
                 popped_element = popped_elements[0]
                 
-                # 2. Construct the BLPOP response array: [key, element]
+                # 3b. Construct the BLPOP response array: [key, element]
                 key_bytes = list_key.encode()
                 element_bytes = popped_element.encode()
 
@@ -178,24 +173,32 @@ def handle_command(command: str, arguments: list, client: socket.socket) -> bool
                 # RESP Array: *2\r\n$len\r\nkey\r\n$len\r\nelement\r\n
                 blpop_response = b"*2\r\n" + key_resp + element_resp
 
-                # 3. Send response to the blocked client's socket
+                # 3c. Send response to the *blocked client's socket*
                 blocked_client_socket = blocked_client_condition.client_socket
                 try:
                     blocked_client_socket.sendall(blpop_response)
                     print(f"Sent: BLPOP response '{[list_key, popped_element]}' to blocked client.")
                 except Exception as e:
-                    # Handle case where the blocked client disconnected
                     print(f"Error sending BLPOP response to blocked client: {e}")
 
-                # 4. Notify the blocked client's thread to wake up
+                # 3d. Notify the blocked client's thread to wake up
                 with blocked_client_condition:
-                    blocked_client_condition.notify()
-                    
-                # Note: The RPUSH response should still be sent to the RPUSH client
-                # (e.g., the length of the list, which is 1 less due to the LPOP above)
-                # You'll need to calculate this new length accurately.
-                # ... (Send RPUSH response)
-                return True
+                    # Setting notified to True tells the blocked thread it was served
+                    blocked_client_condition.notify() 
+
+            # 4. Send the RPUSH response to the *RPUSH client*
+            # Use final_size here, which accounts for the LPOP above.
+            response = b":{size}\r\n".replace(b"{size}", str(final_size).encode())
+            client.sendall(response)
+            print(f"Sent: RPUSH response for key '{list_key}' to {client_address}.")
+            return True
+
+        # 5. If NO blocked client, send RPUSH response using initial_size
+        else:
+            response = b":{size}\r\n".replace(b"{size}", str(initial_size).encode())
+            client.sendall(response)
+            print(f"Sent: RPUSH response for key '{list_key}' to {client_address}.")
+            return True
                 
         # ... (If no blocked clients, or after serving the blocked client, send RPUSH response)
 
