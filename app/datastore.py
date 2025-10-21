@@ -220,7 +220,7 @@ def read_length(f):
         return int.from_bytes(f.read(4), "big")
     else:
         # special string encoding (C0–C3)
-        return read_encoded_string(f, first_byte)
+        return int(read_encoded_string(f, first_byte))
 
 # Helper to read a value depending on its type
 def read_value(f, value_type):
