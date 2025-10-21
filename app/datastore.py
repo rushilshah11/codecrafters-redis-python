@@ -282,6 +282,19 @@ def load_rdb_to_datastore(rdb_path):
             if byte == b'\xFE':  # start of DB section
                 db_index = read_length(f)
 
+                # --- START: ADDED FIX ---
+                # The next byte MUST be \xFB (Hash Table Size Info)
+                hash_size_marker = f.read(1)
+                if hash_size_marker != b'\xFB':
+                     raise Exception(f"Expected \xFB but got: {hash_size_marker}")
+                
+                # Read key-value hash table size (size encoded, just consume it)
+                key_value_hash_size = read_length(f)
+                
+                # Read expiry hash table size (size encoded, just consume it)
+                expiry_hash_size = read_length(f)
+                # --- END: ADDED FIX ---
+
                 while True:
                     type_byte = f.read(1)
                     if type_byte == b'\xFF':  # EOF
