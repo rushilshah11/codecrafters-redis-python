@@ -214,9 +214,6 @@ def read_encoded_string(f, first_byte):
     else:
         raise Exception(f"Unknown string encoding: {hex(first_byte)}")
     
-
-# datastore.py
-
 def load_rdb_to_datastore(rdb_path):
     datastore = {}
 
@@ -305,6 +302,8 @@ def subscribe(client, channel):
         if client not in CLIENT_SUBSCRIPTIONS:
             CLIENT_SUBSCRIPTIONS[client] = set()
         CLIENT_SUBSCRIPTIONS[client].add(channel)
+
+        setattr(client, "is_subscribed", True)
 
 
 def num_client_subscriptions(client) -> int:

@@ -37,6 +37,14 @@ def handle_command(command: str, arguments: list, client: socket.socket) -> bool
     """
     client_address = client.getpeername()
 
+    if getattr(client, "is_subscribed", False):
+        ALLOWED_COMMANDS_WHEN_SUBSCRIBED = {"SUBSCRIBE", "UNSUBSCRIBE", "PING", "QUIT", "PSUBSCRIBE", "PUNSUBSCRIBE"}
+        if command not in ALLOWED_COMMANDS_WHEN_SUBSCRIBED:
+            response = b"-ERR only (P)SUBSCRIBE / (P)UNSUBSCRIBE / PING / QUIT allowed in subscribed state\r\n"
+            client.sendall(response)
+            print(f"Sent: Error for command '{command}' while subscribed to {client_address}.")
+            return True
+
     if command == "PING":
         response = b"+PONG\r\n"
         client.sendall(response)
