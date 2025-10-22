@@ -642,9 +642,11 @@ def handle_command(command: str, arguments: list, client: socket.socket) -> bool
 
             list_of_members = get_sorted_set_range(set_key, start, end)
 
-            response = b"*{}\r\n".format(len(list_of_members)).encode()
+            response_parts = []
             for member in list_of_members:
-                response += b"${}\r\n{}\r\n".format(len(member), member).encode()
+                member_bytes = member.encode() if isinstance(member, str) else bytes(member)
+                response_parts.append(b"$" + str(len(member_bytes)).encode() + b"\r\n" + member_bytes + b"\r\n")
+            response = b"*" + str(len(list_of_members)).encode() + b"\r\n" + b"".join(response_parts)
             client.sendall(response)
             print(f"Sent: ZRANGE response for sorted set '{set_key}' to {client_address}. Members: {list_of_members}")
 
