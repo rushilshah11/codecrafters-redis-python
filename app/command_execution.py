@@ -40,7 +40,7 @@ def handle_command(command: str, arguments: list, client: socket.socket) -> bool
     if is_client_subscribed(client):
         ALLOWED_COMMANDS_WHEN_SUBSCRIBED = {"SUBSCRIBE", "UNSUBSCRIBE", "PING", "QUIT", "PSUBSCRIBE", "PUNSUBSCRIBE"}
         if command not in ALLOWED_COMMANDS_WHEN_SUBSCRIBED:
-            response = b"-ERR only (P)SUBSCRIBE / (P)UNSUBSCRIBE / PING / QUIT allowed in subscribed state\r\n"
+            response = b"-ERR Can't execute '" + command.encode() + b"' when client is subscribed\r\n"
             client.sendall(response)
             print(f"Sent: Error for command '{command}' while subscribed to {client_address}.")
             return True
