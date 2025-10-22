@@ -48,7 +48,15 @@ def handle_command(command: str, arguments: list, client: socket.socket) -> bool
     if command == "PING":
         if is_client_subscribed(client):
             response_parts = []
-            response_parts.append(b"$" + str(len("pong".encode())).encode() + b"\r\n" + b"pong" + b"\r\n")
+            pong_bytes = "pong".encode()
+            response_parts.append(b"$" + str(len(pong_bytes)).encode() + b"\r\n" + pong_bytes + b"\r\n")
+
+            empty_bytes = "".encode()
+            response_parts.append(b"$" + str(len(empty_bytes)).encode() + b"\r\n" + empty_bytes + b"\r\n")
+
+            response = b"*" + str(len(response_parts)).encode() + b"\r\n" + b"".join(response_parts)
+            client.sendall(response)
+            print(f"Sent: PING response to subscribed client {client_address}.")
         else:
             response = b"+PONG\r\n"
             client.sendall(response)
