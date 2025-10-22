@@ -6,7 +6,7 @@ import threading
 import time
 import argparse
 from app.parser import parsed_resp_array
-from app.datastore import BLOCKING_CLIENTS, BLOCKING_CLIENTS_LOCK, CHANNEL_SUBSCRIBERS, DATA_LOCK, DATA_STORE, cleanup_blocked_client, is_client_subscribed, load_rdb_to_datastore, lrange_rtn, num_client_subscriptions, prepend_to_list, remove_elements_from_list, size_of_list, append_to_list, existing_list, get_data_entry, set_list, set_string, subscribe, unsubscribe
+from app.datastore import BLOCKING_CLIENTS, BLOCKING_CLIENTS_LOCK, CHANNEL_SUBSCRIBERS, DATA_LOCK, DATA_STORE, add_to_sorted_set, cleanup_blocked_client, is_client_subscribed, load_rdb_to_datastore, lrange_rtn, num_client_subscriptions, prepend_to_list, remove_elements_from_list, size_of_list, append_to_list, existing_list, get_data_entry, set_list, set_string, subscribe, unsubscribe
 
 # --------------------------------------------------------------------------------
 
@@ -574,7 +574,12 @@ def handle_command(command: str, arguments: list, client: socket.socket) -> bool
         score = arguments[1] if len(arguments) > 1 else ""
         member = arguments[2] if len(arguments) > 2 else ""
 
-        add_to_sorted_set(set_key, score, member)
+        add_to_sorted_set(set_key, member, score)
+        num_sorted_set_members = num_sorted_set_members(set_key)
+
+        response = b":" + str(num_sorted_set_members).encode() + b"\r\n"
+        client.sendall(response)
+        print(f"Sent: ZADD response for sorted set '{set_key}' to {client_address}.")
 
     elif command == "QUIT":
         response = b"+OK\r\n"

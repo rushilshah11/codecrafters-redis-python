@@ -358,3 +358,13 @@ def add_to_sorted_set(key: str, member: str, score: float):
             }
         elif data_entry.get("type") == "sorted_set":
             data_entry["value"][member] = score
+
+def num_sorted_set_members(key: str) -> int:
+    """
+    Returns the number of members in the sorted set at the given key.
+    """
+    with DATA_LOCK:
+        data_entry = DATA_STORE.get(key)
+        if data_entry and data_entry.get("type") == "sorted_set":
+            return len(data_entry["value"])
+        return 0
