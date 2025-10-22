@@ -633,7 +633,7 @@ def handle_command(command: str, arguments: list, client: socket.socket) -> bool
             return True
 
         with DATA_LOCK:
-            if set_key not in SORTED_SETS or SORTED_SETS[set_key]["type"] != "sorted_set":
+            if set_key not in SORTED_SETS:
                 # Key does not exist or is not a sorted set -> return empty array
                 response = b"*0\r\n"
                 client.sendall(response)
