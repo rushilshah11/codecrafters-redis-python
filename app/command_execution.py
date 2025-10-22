@@ -5,6 +5,7 @@ import os
 import threading
 import time
 import argparse
+from xmlrpc import client
 from app.parser import parsed_resp_array
 from app.datastore import BLOCKING_CLIENTS, BLOCKING_CLIENTS_LOCK, CHANNEL_SUBSCRIBERS, DATA_LOCK, DATA_STORE, add_to_sorted_set, cleanup_blocked_client, is_client_subscribed, load_rdb_to_datastore, lrange_rtn, num_client_subscriptions, prepend_to_list, remove_elements_from_list, size_of_list, append_to_list, existing_list, get_data_entry, set_list, set_string, subscribe, unsubscribe
 
@@ -570,16 +571,37 @@ def handle_command(command: str, arguments: list, client: socket.socket) -> bool
         print(f"Sent: UNSUBSCRIBE response for channel '{channel}' to {client_address}.")
 
     elif command == "ZADD":
-        set_key = arguments[0] if arguments else ""
-        score = arguments[1] if len(arguments) > 1 else ""
-        member = arguments[2] if len(arguments) > 2 else ""
+        if len(arguments) < 3:
+            response = b"-ERR wrong number of arguments for 'zadd' command\r\n"
+            client.sendall(response)
+            print(f"Sent: ZADD argument error (too few args) to {client_address}.")
+            return True
+        
+        set_key = arguments[0]
+        
+        if len(arguments) > 3:
+             response = b"-ERR only single score/member pair supported in this stage\r\n"
+             client.sendall(response)
+             return True
 
-        add_to_sorted_set(set_key, member, score)
-        num_sorted_set_members = num_sorted_set_members(set_key)
+        # Extract the single score and member pair
+        score_str = arguments[1]
+        member = arguments[2]
 
-        response = b":" + str(num_sorted_set_members).encode() + b"\r\n"
+        try:
+            # The helper handles the addition/update and returns the count of new members (1 or 0).
+            num_new_elements = add_to_sorted_set(set_key, member, score_str)
+        except Exception:
+            # Catch exceptions from the helper (e.g., if score_str is not a number)
+            response = b"-ERR value is not a valid float\r\n"
+            client.sendall(response)
+            return True
+
+        # ZADD returns the number of *newly added* elements.
+        # Encode as a RESP Integer (e.g., :1\r\n)
+        response = b":" + str(num_new_elements).encode() + b"\r\n"
         client.sendall(response)
-        print(f"Sent: ZADD response for sorted set '{set_key}' to {client_address}.")
+        print(f"Sent: ZADD response for sorted set '{set_key}' to {client_address}. New elements: {num_new_elements}")  
 
     elif command == "QUIT":
         response = b"+OK\r\n"

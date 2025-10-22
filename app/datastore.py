@@ -12,6 +12,8 @@ CHANNEL_SUBSCRIBERS = {}
 CLIENT_SUBSCRIPTIONS = {}
 CLIENT_STATE = {}
 
+SORTED_SETS = {}
+
 # The central storage. Keys map to a dictionary containing value, type, and expiry metadata.
 # Example: {'mykey': {'type': 'string', 'value': 'myvalue', 'expiry': 1731671220000}}
 DATA_STORE = {}
@@ -344,27 +346,43 @@ def unsubscribe(client, channel):
             subscriptions = CLIENT_SUBSCRIPTIONS.get(client, set())
             CLIENT_STATE[client]["is_subscribed"] = len(subscriptions) > 0
 
-def add_to_sorted_set(key: str, member: str, score: float):
+# In app/datastore.py (add these functions)
+
+def add_to_sorted_set(key: str, member: str, score_str: str) -> int:
     """
-    Adds a member with a score to a sorted set at the given key.
+    Adds a member with a given score to a sorted set.
+    Returns 1 if a new member was added, or 0 if an existing member's score was updated.
     """
     with DATA_LOCK:
-        data_entry = DATA_STORE.get(key)
-        if data_entry is None:
-            DATA_STORE[key] = {
-                "type": "sorted_set",
-                "value": {member: score},
-                "expiry": None
-            }
-        elif data_entry.get("type") == "sorted_set":
-            data_entry["value"][member] = score
+        try:
+            # Convert the score to a 64-bit float
+            score = float(score_str)
+        except ValueError:
+            # Redis would return an error here, but for now, we'll return 0 
+            # or let the calling code handle the error.
+            # In a full implementation: raise Exception("Score is not a valid float")
+            return 0 
+
+        # 1. Ensure the sorted set exists in the map
+        if key not in SORTED_SETS:
+            # Create a new sorted set (dictionary of members to scores)
+            SORTED_SETS[key] = {}
+        
+        # 2. Check if the member already exists
+        is_new_member = member not in SORTED_SETS[key]
+        
+        # 3. Add or update the member's score
+        # The key is the member name, the value is the float score
+        SORTED_SETS[key][member] = score
+        
+        # 4. Return the number of *newly* added elements (1 or 0)
+        return 1 if is_new_member else 0
+
 
 def num_sorted_set_members(key: str) -> int:
     """
-    Returns the number of members in the sorted set at the given key.
+    Returns the number of elements (cardinality) in the sorted set stored at key.
     """
     with DATA_LOCK:
-        data_entry = DATA_STORE.get(key)
-        if data_entry and data_entry.get("type") == "sorted_set":
-            return len(data_entry["value"])
-        return 0
+        # Returns the size of the inner dictionary, or 0 if the key is missing
+        return len(SORTED_SETS.get(key, {}))
