@@ -358,9 +358,6 @@ def add_to_sorted_set(key: str, member: str, score_str: str) -> int:
             # Convert the score to a 64-bit float
             score = float(score_str)
         except ValueError:
-            # Redis would return an error here, but for now, we'll return 0 
-            # or let the calling code handle the error.
-            # In a full implementation: raise Exception("Score is not a valid float")
             return 0 
 
         # 1. Ensure the sorted set exists in the map
@@ -371,11 +368,8 @@ def add_to_sorted_set(key: str, member: str, score_str: str) -> int:
         # 2. Check if the member already exists
         is_new_member = member not in SORTED_SETS[key]
         
-        # 3. Add or update the member's score
-        # The key is the member name, the value is the float score
         SORTED_SETS[key][member] = score
-        
-        # 4. Return the number of *newly* added elements (1 or 0)
+
         return 1 if is_new_member else 0
 
 
