@@ -643,6 +643,25 @@ def handle_command(command: str, arguments: list, client: socket.socket) -> bool
         client.sendall(response)
         print(f"Sent: ZRANGE response for sorted set '{set_key}' to {client_address}. Members: {list_of_members}")
 
+    elif command == "ZCARD":
+        if len(arguments) < 1:
+            response = b"-ERR wrong number of arguments for 'ZCARD' command\r\n"
+            client.sendall(response)
+            print(f"Sent: ZCARD argument error to {client_address}.")
+            return True
+        
+        set_key = arguments[0]
+        
+        with DATA_LOCK:
+            if set_key in SORTED_SETS:
+                cardinality = len(SORTED_SETS[set_key])
+            else:
+                cardinality = 0
+
+        response = b":" + str(cardinality).encode() + b"\r\n"
+        client.sendall(response)
+        print(f"Sent: ZCARD response for sorted set '{set_key}' to {client_address}. Cardinality: {cardinality}")
+
     elif command == "QUIT":
         response = b"+OK\r\n"
         client.sendall(response)
