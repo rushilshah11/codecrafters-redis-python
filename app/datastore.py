@@ -10,6 +10,8 @@ BLOCKING_CLIENTS = {}
 
 CHANNEL_SUBSCRIBERS = {}
 CLIENT_SUBSCRIPTIONS = {}
+CLIENT_STATE = {}
+
 # The central storage. Keys map to a dictionary containing value, type, and expiry metadata.
 # Example: {'mykey': {'type': 'string', 'value': 'myvalue', 'expiry': 1731671220000}}
 DATA_STORE = {}
@@ -303,7 +305,9 @@ def subscribe(client, channel):
             CLIENT_SUBSCRIPTIONS[client] = set()
         CLIENT_SUBSCRIPTIONS[client].add(channel)
 
-        setattr(client, "is_subscribed", True)
+        if client not in CLIENT_STATE:
+            CLIENT_STATE[client] = {}
+        CLIENT_STATE[client]["is_subscribed"] = True
 
 
 def num_client_subscriptions(client) -> int:
@@ -315,3 +319,11 @@ def num_client_subscriptions(client) -> int:
         if client in CLIENT_SUBSCRIPTIONS:
             count = len(CLIENT_SUBSCRIPTIONS[client])
     return count
+
+def is_client_subscribed(client) -> bool:
+    """
+    Returns whether the given client is subscribed to any channels.
+    """
+    with BLOCKING_CLIENTS_LOCK:
+        state = CLIENT_STATE.get(client, {})
+        return state.get("is_subscribed", False)
