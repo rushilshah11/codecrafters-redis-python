@@ -327,3 +327,19 @@ def is_client_subscribed(client) -> bool:
     with BLOCKING_CLIENTS_LOCK:
         state = CLIENT_STATE.get(client, {})
         return state.get("is_subscribed", False)
+    
+def unsubscribe(client, channel):
+    with BLOCKING_CLIENTS_LOCK:
+        if channel in CHANNEL_SUBSCRIBERS:
+            CHANNEL_SUBSCRIBERS[channel].discard(client)
+            if not CHANNEL_SUBSCRIBERS[channel]:
+                del CHANNEL_SUBSCRIBERS[channel]
+
+        if client in CLIENT_SUBSCRIPTIONS:
+            CLIENT_SUBSCRIPTIONS[client].discard(channel)
+            if not CLIENT_SUBSCRIPTIONS[client]:
+                del CLIENT_SUBSCRIPTIONS[client]
+
+        if client in CLIENT_STATE:
+            subscriptions = CLIENT_SUBSCRIPTIONS.get(client, set())
+            CLIENT_STATE[client]["is_subscribed"] = len(subscriptions) > 0

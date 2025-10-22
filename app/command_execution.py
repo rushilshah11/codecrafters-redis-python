@@ -6,7 +6,7 @@ import threading
 import time
 import argparse
 from app.parser import parsed_resp_array
-from app.datastore import BLOCKING_CLIENTS, BLOCKING_CLIENTS_LOCK, CHANNEL_SUBSCRIBERS, DATA_LOCK, DATA_STORE, cleanup_blocked_client, is_client_subscribed, load_rdb_to_datastore, lrange_rtn, num_client_subscriptions, prepend_to_list, remove_elements_from_list, size_of_list, append_to_list, existing_list, get_data_entry, set_list, set_string, subscribe
+from app.datastore import BLOCKING_CLIENTS, BLOCKING_CLIENTS_LOCK, CHANNEL_SUBSCRIBERS, DATA_LOCK, DATA_STORE, cleanup_blocked_client, is_client_subscribed, load_rdb_to_datastore, lrange_rtn, num_client_subscriptions, prepend_to_list, remove_elements_from_list, size_of_list, append_to_list, existing_list, get_data_entry, set_list, set_string, subscribe, unsubscribe
 
 # --------------------------------------------------------------------------------
 
@@ -554,7 +554,20 @@ def handle_command(command: str, arguments: list, client: socket.socket) -> bool
         response = b":" + str(recipients).encode() + b"\r\n"
         client.sendall(response)
         print(f"Sent: PUBLISH response with {recipients} recipients to {client_address}.")
-        
+
+    elif command == "UNSUBSCRIBE":
+        channel = arguments[0] if arguments else ""
+
+        unsubscribe(client, channel)
+        num_subscriptions = num_client_subscriptions(client)    
+
+        response_parts = []
+        response_parts.append(b"$" + str(len("unsubscribe".encode())).encode() + b"\r\n" + b"unsubscribe" + b"\r\n")
+        response_parts.append(b"$" + str(len(channel.encode())).encode() + b"\r\n" + channel.encode() + b"\r\n")
+        response_parts.append(b":" + str(num_subscriptions).encode() + b"\r\n")  # Number of subscriptions
+        response = b"*" + str(len(response_parts)).encode() + b"\r\n" + b"".join(response_parts)
+        client.sendall(response)
+        print(f"Sent: UNSUBSCRIBE response for channel '{channel}' to {client_address}.")
 def handle_connection(client: socket.socket, client_address):
     """
     This function is called for each new client connection.
