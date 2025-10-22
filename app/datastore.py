@@ -343,3 +343,18 @@ def unsubscribe(client, channel):
         if client in CLIENT_STATE:
             subscriptions = CLIENT_SUBSCRIPTIONS.get(client, set())
             CLIENT_STATE[client]["is_subscribed"] = len(subscriptions) > 0
+
+def add_to_sorted_set(key: str, member: str, score: float):
+    """
+    Adds a member with a score to a sorted set at the given key.
+    """
+    with DATA_LOCK:
+        data_entry = DATA_STORE.get(key)
+        if data_entry is None:
+            DATA_STORE[key] = {
+                "type": "sorted_set",
+                "value": {member: score},
+                "expiry": None
+            }
+        elif data_entry.get("type") == "sorted_set":
+            data_entry["value"][member] = score

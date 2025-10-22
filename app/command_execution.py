@@ -568,6 +568,20 @@ def handle_command(command: str, arguments: list, client: socket.socket) -> bool
         response = b"*" + str(len(response_parts)).encode() + b"\r\n" + b"".join(response_parts)
         client.sendall(response)
         print(f"Sent: UNSUBSCRIBE response for channel '{channel}' to {client_address}.")
+
+    elif command == "ZADD":
+        set_key = arguments[0] if arguments else ""
+        score = arguments[1] if len(arguments) > 1 else ""
+        member = arguments[2] if len(arguments) > 2 else ""
+
+        add_to_sorted_set(set_key, score, member)
+
+    elif command == "QUIT":
+        response = b"+OK\r\n"
+        client.sendall(response)
+        print(f"Sent: OK to {client_address} for QUIT command. Closing connection.")
+        cleanup_blocked_client(client)
+        return False  # Signal to close the connection
 def handle_connection(client: socket.socket, client_address):
     """
     This function is called for each new client connection.
