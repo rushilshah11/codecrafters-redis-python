@@ -7,7 +7,7 @@ import time
 import argparse
 from xmlrpc import client
 from app.parser import parsed_resp_array
-from app.datastore import BLOCKING_CLIENTS, BLOCKING_CLIENTS_LOCK, CHANNEL_SUBSCRIBERS, DATA_LOCK, DATA_STORE, SORTED_SETS, add_to_sorted_set, cleanup_blocked_client, get_sorted_set_range, get_sorted_set_rank, is_client_subscribed, load_rdb_to_datastore, lrange_rtn, num_client_subscriptions, prepend_to_list, remove_elements_from_list, size_of_list, append_to_list, existing_list, get_data_entry, set_list, set_string, subscribe, unsubscribe
+from app.datastore import BLOCKING_CLIENTS, BLOCKING_CLIENTS_LOCK, CHANNEL_SUBSCRIBERS, DATA_LOCK, DATA_STORE, SORTED_SETS, add_to_sorted_set, cleanup_blocked_client, get_sorted_set_range, get_sorted_set_rank, get_zscore, is_client_subscribed, load_rdb_to_datastore, lrange_rtn, num_client_subscriptions, prepend_to_list, remove_elements_from_list, size_of_list, append_to_list, existing_list, get_data_entry, set_list, set_string, subscribe, unsubscribe
 
 # --------------------------------------------------------------------------------
 
@@ -662,6 +662,28 @@ def handle_command(command: str, arguments: list, client: socket.socket) -> bool
         client.sendall(response)
         print(f"Sent: ZCARD response for sorted set '{set_key}' to {client_address}. Cardinality: {cardinality}")
 
+    elif command == "ZSCORE":
+        if len(arguments) < 2:
+            response = b"-ERR wrong number of arguments for 'ZSCORE' command\r\n"
+            client.sendall(response)
+            print(f"Sent: ZSCORE argument error to {client_address}.")
+            return True
+        
+        set_key = arguments[0]
+        member = arguments[1]
+
+        score = get_zscore(set_key, member)
+
+        if score is None:
+            response = b"$-1\r\n"  # RESP Null Bulk String
+        else:
+            score_str = str(score)
+            score_bytes = score_str.encode()
+            length_bytes = str(len(score_bytes)).encode()
+            response = b"$" + length_bytes + b"\r\n" + score_bytes + b"\r\n"
+
+        client.sendall(response)
+        print(f"Sent: ZSCORE response for member '{member}' in sorted set '{set_key}' to {client_address}.")
     elif command == "QUIT":
         response = b"+OK\r\n"
         client.sendall(response)

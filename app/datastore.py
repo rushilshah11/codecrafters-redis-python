@@ -432,3 +432,14 @@ def get_sorted_set_range(key: str, start: int, end: int) -> list[str]:
             return []
 
         return sorted_member_names[start:end + 1]
+
+def get_zscore(key: str, member: str) -> float | None:
+    """
+    Returns the score of the member in the sorted set stored at key.
+    If the member does not exist, returns None.
+    """
+    with DATA_LOCK:
+        if key not in SORTED_SETS or member not in SORTED_SETS[key]:
+            return None
+        
+        return SORTED_SETS[key][member]
