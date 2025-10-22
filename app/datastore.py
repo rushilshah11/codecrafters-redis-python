@@ -145,69 +145,8 @@ def cleanup_blocked_client(client):
             if not BLOCKING_CLIENTS[key]:
                 del BLOCKING_CLIENTS[key]
 
-def read_key_from_rdb(rdb_path, target_key):
-    with open(rdb_path, "rb") as f:
-        # 1. Read header (magic + 4-byte version). Do not consume the rest of the file.
-        magic = f.read(5)
-        if magic != b"REDIS":
-            raise Exception("Unsupported RDB file: missing 'REDIS' magic")
-        version = f.read(4)
-        if not version or len(version) < 4:
-            raise Exception("Unsupported RDB version")
-        # optionally consume a single newline after the version
-        maybe_nl = f.read(1)
-        if maybe_nl not in (b"\n", b"\r", b""):
-            f.seek(-1, 1)
-
-        # 2. Skip metadata sections
-        while True:
-            byte = f.read(1)
-            if byte == b'\xFA':  # metadata start
-                # Read metadata key and value
-                meta_key = read_string(f)
-                meta_val = read_string(f)
-            else:
-                # Not metadata, rewind one byte and break
-                f.seek(-1, 1)
-                break
-
-        # 3. Read database sections
-        while True:
-            byte = f.read(1)
-            if byte == b'\xFE':  # start of DB section
-                db_index = read_length(f)  # size-encoded DB index
-
-                # Read key-value pairs
-                while True:
-                    type_byte = f.read(1)
-                    if type_byte == b'\xFF':  # end of RDB
-                        return None
-
-                    # Optional expiry
-                    if type_byte in (b'\xFC', b'\xFD'):
-                        expiry = read_expiry(f, type_byte)
-                        type_byte = f.read(1)  # actual value type
-
-                    value_type = type_byte  # 1 byte
-                    key = read_string(f)
-
-                    value = read_value(f, value_type)
-
-                    # 4. Check if this is the key we want
-                    if key == target_key:
-                        return value
-
-                    # else, continue to next key-value
-            elif byte == b'\xFF':  # EOF
-                break
-            else:
-                raise Exception("Unexpected byte in RDB")
-    return None
-
-
 # Helper to read a string (size-encoded)
 # datastore.py (modified read_string)
-
 def read_string(f):
     length_or_encoding_byte = read_length(f)
     

@@ -427,7 +427,7 @@ def handle_command(command: str, arguments: list, client: socket.socket) -> bool
         if param_name == "dir":
             value = DIR
         elif param_name == "dbfilename":
-            value = DBFILENAME
+            value = DB_FILENAME
 
         # 2. Handle unknown parameters
         if value is None:
@@ -487,6 +487,18 @@ def handle_command(command: str, arguments: list, client: socket.socket) -> bool
         client.sendall(response)
         print(f"Sent: KEYS response for pattern '{pattern}' to {client_address}.")
 
+    elif command == "SUBSCRIBE":
+        # Construct RESP Array response
+        channel = arguments[0] if arguments else ""
+
+        response_parts = []
+        response_parts.append(b"$" + str(len("subscribe".encode())).encode() + b"\r\n" + b"subscribe" + b"\r\n")
+        response_parts.append(b"$" + str(len(channel.encode())).encode() + b"\r\n" + channel.encode() + b"\r\n")
+        response_parts.append(b":" + b"1" + b"\r\n")  # Number of subscriptions (dummy value)
+
+        response = b"*" + str(len(response_parts)).encode() + b"\r\n" + b"".join(response_parts)
+        client.sendall(response)
+        print(f"Sent: SUBSCRIBE response for channel '{channel}' to {client_address}.")
 
 def handle_connection(client: socket.socket, client_address):
     """
