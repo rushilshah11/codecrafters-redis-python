@@ -6,7 +6,7 @@ import threading
 import time
 import argparse
 from app.parser import parsed_resp_array
-from app.datastore import BLOCKING_CLIENTS, BLOCKING_CLIENTS_LOCK, DATA_LOCK, DATA_STORE, cleanup_blocked_client, load_rdb_to_datastore, lrange_rtn, prepend_to_list, remove_elements_from_list, size_of_list, append_to_list, existing_list, get_data_entry, set_list, set_string
+from app.datastore import BLOCKING_CLIENTS, BLOCKING_CLIENTS_LOCK, DATA_LOCK, DATA_STORE, cleanup_blocked_client, load_rdb_to_datastore, lrange_rtn, num_client_subscriptions, prepend_to_list, remove_elements_from_list, size_of_list, append_to_list, existing_list, get_data_entry, set_list, set_string, subscribe
 
 # --------------------------------------------------------------------------------
 
@@ -490,11 +490,13 @@ def handle_command(command: str, arguments: list, client: socket.socket) -> bool
     elif command == "SUBSCRIBE":
         # Construct RESP Array response
         channel = arguments[0] if arguments else ""
+        subscribe(client, channel)
+        num_subscriptions = num_client_subscriptions(client)
 
         response_parts = []
         response_parts.append(b"$" + str(len("subscribe".encode())).encode() + b"\r\n" + b"subscribe" + b"\r\n")
         response_parts.append(b"$" + str(len(channel.encode())).encode() + b"\r\n" + channel.encode() + b"\r\n")
-        response_parts.append(b":" + b"1" + b"\r\n")  # Number of subscriptions (dummy value)
+        response_parts.append(b":" + str(num_subscriptions).encode() + b"\r\n")  # Number of subscriptions
 
         response = b"*" + str(len(response_parts)).encode() + b"\r\n" + b"".join(response_parts)
         client.sendall(response)

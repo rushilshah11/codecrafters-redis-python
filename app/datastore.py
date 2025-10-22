@@ -8,6 +8,8 @@ DATA_LOCK = threading.Lock()
 BLOCKING_CLIENTS_LOCK = threading.Lock()
 BLOCKING_CLIENTS = {}
 
+CHANNEL_SUBSCRIBERS = {}
+CLIENT_SUBSCRIPTIONS = {}
 # The central storage. Keys map to a dictionary containing value, type, and expiry metadata.
 # Example: {'mykey': {'type': 'string', 'value': 'myvalue', 'expiry': 1731671220000}}
 DATA_STORE = {}
@@ -294,3 +296,23 @@ def load_rdb_to_datastore(rdb_path):
 
     return datastore
 
+def subscribe(channel, client):
+    with BLOCKING_CLIENTS_LOCK:
+        if channel not in CHANNEL_SUBSCRIBERS:
+            CHANNEL_SUBSCRIBERS[channel] = set()
+        CHANNEL_SUBSCRIBERS[channel].add(client)
+
+        if client not in CLIENT_SUBSCRIPTIONS:
+            CLIENT_SUBSCRIPTIONS[client] = set()
+        CLIENT_SUBSCRIPTIONS[client].add(channel)
+
+
+def num_client_subscriptions(client) -> int:
+    """
+    Returns the number of channels the given client is subscribed to.
+    """
+    count = 0
+    with BLOCKING_CLIENTS_LOCK:
+        if client in CLIENT_SUBSCRIPTIONS:
+            count = len(CLIENT_SUBSCRIPTIONS[client])
+    return count
