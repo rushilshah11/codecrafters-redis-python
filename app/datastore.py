@@ -346,8 +346,6 @@ def unsubscribe(client, channel):
             subscriptions = CLIENT_SUBSCRIPTIONS.get(client, set())
             CLIENT_STATE[client]["is_subscribed"] = len(subscriptions) > 0
 
-# In app/datastore.py (add these functions)
-
 def add_to_sorted_set(key: str, member: str, score_str: str) -> int:
     """
     Adds a member with a given score to a sorted set.
@@ -371,7 +369,6 @@ def add_to_sorted_set(key: str, member: str, score_str: str) -> int:
         SORTED_SETS[key][member] = score
 
         return 1 if is_new_member else 0
-
 
 def num_sorted_set_members(key: str) -> int:
     """
