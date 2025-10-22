@@ -296,7 +296,7 @@ def load_rdb_to_datastore(rdb_path):
 
     return datastore
 
-def subscribe(channel, client):
+def subscribe(client, channel):
     with BLOCKING_CLIENTS_LOCK:
         if channel not in CHANNEL_SUBSCRIBERS:
             CHANNEL_SUBSCRIBERS[channel] = set()
