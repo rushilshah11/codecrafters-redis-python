@@ -7,7 +7,7 @@ import time
 import argparse
 from xmlrpc import client
 from app.parser import parsed_resp_array
-from app.datastore import BLOCKING_CLIENTS, BLOCKING_CLIENTS_LOCK, CHANNEL_SUBSCRIBERS, DATA_LOCK, DATA_STORE, add_to_sorted_set, cleanup_blocked_client, get_sorted_set_range, get_sorted_set_rank, is_client_subscribed, load_rdb_to_datastore, lrange_rtn, num_client_subscriptions, prepend_to_list, remove_elements_from_list, size_of_list, append_to_list, existing_list, get_data_entry, set_list, set_string, subscribe, unsubscribe
+from app.datastore import BLOCKING_CLIENTS, BLOCKING_CLIENTS_LOCK, CHANNEL_SUBSCRIBERS, DATA_LOCK, DATA_STORE, SORTED_SETS, add_to_sorted_set, cleanup_blocked_client, get_sorted_set_range, get_sorted_set_rank, is_client_subscribed, load_rdb_to_datastore, lrange_rtn, num_client_subscriptions, prepend_to_list, remove_elements_from_list, size_of_list, append_to_list, existing_list, get_data_entry, set_list, set_string, subscribe, unsubscribe
 
 # --------------------------------------------------------------------------------
 
@@ -633,7 +633,7 @@ def handle_command(command: str, arguments: list, client: socket.socket) -> bool
             return True
 
         with DATA_LOCK:
-            if set_key not in DATA_STORE or DATA_STORE[set_key]["type"] != "sorted_set":
+            if set_key not in SORTED_SETS or SORTED_SETS[set_key]["type"] != "sorted_set":
                 # Key does not exist or is not a sorted set -> return empty array
                 response = b"*0\r\n"
                 client.sendall(response)
