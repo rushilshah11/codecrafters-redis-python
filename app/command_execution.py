@@ -554,6 +554,7 @@ def handle_command(command: str, arguments: list, client: socket.socket) -> bool
         response = b":" + str(recipients).encode() + b"\r\n"
         client.sendall(response)
         print(f"Sent: PUBLISH response with {recipients} recipients to {client_address}.")
+        
 def handle_connection(client: socket.socket, client_address):
     """
     This function is called for each new client connection.
