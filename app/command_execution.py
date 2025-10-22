@@ -7,7 +7,7 @@ import time
 import argparse
 from xmlrpc import client
 from app.parser import parsed_resp_array
-from app.datastore import BLOCKING_CLIENTS, BLOCKING_CLIENTS_LOCK, CHANNEL_SUBSCRIBERS, DATA_LOCK, DATA_STORE, SORTED_SETS, add_to_sorted_set, cleanup_blocked_client, get_sorted_set_range, get_sorted_set_rank, get_zscore, is_client_subscribed, load_rdb_to_datastore, lrange_rtn, num_client_subscriptions, prepend_to_list, remove_elements_from_list, size_of_list, append_to_list, existing_list, get_data_entry, set_list, set_string, subscribe, unsubscribe
+from app.datastore import BLOCKING_CLIENTS, BLOCKING_CLIENTS_LOCK, CHANNEL_SUBSCRIBERS, DATA_LOCK, DATA_STORE, SORTED_SETS, add_to_sorted_set, cleanup_blocked_client, get_sorted_set_range, get_sorted_set_rank, get_zscore, is_client_subscribed, load_rdb_to_datastore, lrange_rtn, num_client_subscriptions, prepend_to_list, remove_elements_from_list, remove_from_sorted_set, size_of_list, append_to_list, existing_list, get_data_entry, set_list, set_string, subscribe, unsubscribe
 
 # --------------------------------------------------------------------------------
 
@@ -684,6 +684,23 @@ def handle_command(command: str, arguments: list, client: socket.socket) -> bool
 
         client.sendall(response)
         print(f"Sent: ZSCORE response for member '{member}' in sorted set '{set_key}' to {client_address}.")
+    
+    elif command == "ZREM":
+        if len(arguments) < 2:
+            response = b"-ERR wrong number of arguments for 'ZREM' command\r\n"
+            client.sendall(response)
+            print(f"Sent: ZREM argument error to {client_address}.")
+            return True
+        
+        set_key = arguments[0]
+        members = arguments[1]
+
+        removed_count = remove_from_sorted_set(set_key, members)
+
+        response = b":" + str(removed_count).encode() + b"\r\n"
+        client.sendall(response)
+        print(f"Sent: ZREM response for sorted set '{set_key}' to {client_address}. Removed count: {removed_count}")
+    
     elif command == "QUIT":
         response = b"+OK\r\n"
         client.sendall(response)

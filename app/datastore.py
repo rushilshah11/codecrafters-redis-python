@@ -443,3 +443,15 @@ def get_zscore(key: str, member: str) -> float | None:
             return None
         
         return SORTED_SETS[key][member]
+
+def remove_from_sorted_set(key: str, member: str) -> int:
+    """
+    Removes a member from the sorted set stored at key.
+    Returns 1 if the member was removed, or 0 if the member did not exist.
+    """
+    with DATA_LOCK:
+        if key not in SORTED_SETS or member not in SORTED_SETS[key]:
+            return 0
+
+        del SORTED_SETS[key][member]
+        return 1
