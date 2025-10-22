@@ -632,23 +632,16 @@ def handle_command(command: str, arguments: list, client: socket.socket) -> bool
             client.sendall(response)
             return True
 
-        with DATA_LOCK:
-            if set_key not in SORTED_SETS:
-                # Key does not exist or is not a sorted set -> return empty array
-                response = b"*0\r\n"
-                client.sendall(response)
-                print(f"Sent: ZRANGE empty response for non-existing or wrong-type key '{set_key}' to {client_address}.")
-                return True
 
-            list_of_members = get_sorted_set_range(set_key, start, end)
+        list_of_members = get_sorted_set_range(set_key, start, end)
 
-            response_parts = []
-            for member in list_of_members:
-                member_bytes = member.encode() if isinstance(member, str) else bytes(member)
-                response_parts.append(b"$" + str(len(member_bytes)).encode() + b"\r\n" + member_bytes + b"\r\n")
-            response = b"*" + str(len(list_of_members)).encode() + b"\r\n" + b"".join(response_parts)
-            client.sendall(response)
-            print(f"Sent: ZRANGE response for sorted set '{set_key}' to {client_address}. Members: {list_of_members}")
+        response_parts = []
+        for member in list_of_members:
+            member_bytes = member.encode() if isinstance(member, str) else bytes(member)
+            response_parts.append(b"$" + str(len(member_bytes)).encode() + b"\r\n" + member_bytes + b"\r\n")
+        response = b"*" + str(len(list_of_members)).encode() + b"\r\n" + b"".join(response_parts)
+        client.sendall(response)
+        print(f"Sent: ZRANGE response for sorted set '{set_key}' to {client_address}. Members: {list_of_members}")
 
     elif command == "QUIT":
         response = b"+OK\r\n"
