@@ -380,3 +380,25 @@ def num_sorted_set_members(key: str) -> int:
     with DATA_LOCK:
         # Returns the size of the inner dictionary, or 0 if the key is missing
         return len(SORTED_SETS.get(key, {}))
+    
+def get_sorted_set_rank(key: str, member: str) -> int | None:
+    """
+    Returns the rank (0-based index) of the member in the sorted set stored at key.
+    If the member does not exist, returns None.
+    """
+    with DATA_LOCK:
+        if key not in SORTED_SETS or member not in SORTED_SETS[key]:
+            return None
+        
+        # Get all members and their scores
+        members_with_scores = SORTED_SETS[key].items()
+        
+        # Sort members by score (ascending), then by member name (lexicographically)
+        sorted_members = sorted(members_with_scores, key=lambda item: (item[1], item[0]))
+        
+        # Find the rank of the specified member
+        for rank, (m, _) in enumerate(sorted_members):
+            if m == member:
+                return rank
+        
+        return None  # Should not reach here due to earlier checks

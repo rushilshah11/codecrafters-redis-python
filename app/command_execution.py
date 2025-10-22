@@ -7,7 +7,7 @@ import time
 import argparse
 from xmlrpc import client
 from app.parser import parsed_resp_array
-from app.datastore import BLOCKING_CLIENTS, BLOCKING_CLIENTS_LOCK, CHANNEL_SUBSCRIBERS, DATA_LOCK, DATA_STORE, add_to_sorted_set, cleanup_blocked_client, is_client_subscribed, load_rdb_to_datastore, lrange_rtn, num_client_subscriptions, prepend_to_list, remove_elements_from_list, size_of_list, append_to_list, existing_list, get_data_entry, set_list, set_string, subscribe, unsubscribe
+from app.datastore import BLOCKING_CLIENTS, BLOCKING_CLIENTS_LOCK, CHANNEL_SUBSCRIBERS, DATA_LOCK, DATA_STORE, add_to_sorted_set, cleanup_blocked_client, get_sorted_set_rank, is_client_subscribed, load_rdb_to_datastore, lrange_rtn, num_client_subscriptions, prepend_to_list, remove_elements_from_list, size_of_list, append_to_list, existing_list, get_data_entry, set_list, set_string, subscribe, unsubscribe
 
 # --------------------------------------------------------------------------------
 
@@ -602,6 +602,19 @@ def handle_command(command: str, arguments: list, client: socket.socket) -> bool
         response = b":" + str(num_new_elements).encode() + b"\r\n"
         client.sendall(response)
         print(f"Sent: ZADD response for sorted set '{set_key}' to {client_address}. New elements: {num_new_elements}")  
+
+    elif command == "ZRANK":
+        set_key = arguments[0] if len(arguments) > 0 else ""
+        member = arguments[1] if len(arguments) > 1 else ""
+
+        rank = get_sorted_set_rank(set_key, member)
+        if rank is None:
+            response = b"$-1\r\n"  # RESP Null Bulk String
+        else:
+            response = b":" + str(rank).encode() + b"\r\n"
+        
+        client.sendall(response)
+        print(f"Sent: ZRANK response for member '{member}' in sorted set '{set_key}' to {client_address}. Rank: {rank}")
 
     elif command == "QUIT":
         response = b"+OK\r\n"
