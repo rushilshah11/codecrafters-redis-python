@@ -6,7 +6,7 @@ import threading
 import time
 import argparse
 from app.parser import parsed_resp_array
-from app.datastore import BLOCKING_CLIENTS, BLOCKING_CLIENTS_LOCK, DATA_LOCK, DATA_STORE, cleanup_blocked_client, is_client_subscribed, load_rdb_to_datastore, lrange_rtn, num_client_subscriptions, prepend_to_list, remove_elements_from_list, size_of_list, append_to_list, existing_list, get_data_entry, set_list, set_string, subscribe
+from app.datastore import BLOCKING_CLIENTS, BLOCKING_CLIENTS_LOCK, CHANNEL_SUBSCRIBERS, DATA_LOCK, DATA_STORE, cleanup_blocked_client, is_client_subscribed, load_rdb_to_datastore, lrange_rtn, num_client_subscriptions, prepend_to_list, remove_elements_from_list, size_of_list, append_to_list, existing_list, get_data_entry, set_list, set_string, subscribe
 
 # --------------------------------------------------------------------------------
 
@@ -522,6 +522,38 @@ def handle_command(command: str, arguments: list, client: socket.socket) -> bool
         client.sendall(response)
         print(f"Sent: SUBSCRIBE response for channel '{channel}' to {client_address}.")
 
+    elif command == "PUBLISH":
+        if len(arguments) != 2:
+            response = b"-ERR wrong number of arguments for 'PUBLISH' command\r\n"
+            client.sendall(response)
+            print(f"Sent: PUBLISH argument error to {client_address}.")
+            return True
+        
+        channel = arguments[0]
+        message = arguments[1]
+        recipients = 0
+
+        with BLOCKING_CLIENTS_LOCK:
+            if channel in CHANNEL_SUBSCRIBERS:
+                subscribers = CHANNEL_SUBSCRIBERS[channel]
+                for subscriber in subscribers:
+                    # Construct the message RESP Array
+                    response_parts = []
+                    response_parts.append(b"$" + str(len("message".encode())).encode() + b"\r\n" + b"message" + b"\r\n")
+                    response_parts.append(b"$" + str(len(channel.encode())).encode() + b"\r\n" + channel.encode() + b"\r\n")
+                    response_parts.append(b"$" + str(len(message.encode())).encode() + b"\r\n" + message.encode() + b"\r\n")
+
+                    response = b"*" + str(len(response_parts)).encode() + b"\r\n" + b"".join(response_parts)
+                    try:
+                        subscriber.sendall(response)
+                        recipients += 1
+                    except Exception:
+                        pass  # Ignore send errors for subscribers
+
+        # Send number of recipients to publisher
+        response = b":" + str(recipients).encode() + b"\r\n"
+        client.sendall(response)
+        print(f"Sent: PUBLISH response with {recipients} recipients to {client_address}.")
 def handle_connection(client: socket.socket, client_address):
     """
     This function is called for each new client connection.
