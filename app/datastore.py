@@ -402,3 +402,36 @@ def get_sorted_set_rank(key: str, member: str) -> int | None:
                 return rank
         
         return None  # Should not reach here due to earlier checks
+    
+def get_sorted_set_range(key: str, start: int, end: int) -> list[str]:
+    """
+    Returns a list of members in the sorted set stored at key, from start to end indices (inclusive).
+    If the key does not exist, returns an empty list.
+    """
+    with DATA_LOCK:
+        if key not in SORTED_SETS:
+            return []
+        
+        # Get all members and their scores
+        members_with_scores = SORTED_SETS[key].items()
+        
+        # Sort members by score (ascending), then by member name (lexicographically)
+        sorted_members = sorted(members_with_scores, key=lambda item: (item[1], item[0]))
+        
+        # Extract just the member names
+        sorted_member_names = [member for member, _ in sorted_members]
+        
+        # Handle negative indices
+        if start < 0:
+            start = start + len(sorted_member_names)
+        if end < 0:
+            end = end + len(sorted_member_names)
+        
+        # Adjust indices to be within bounds
+        start = max(0, start)
+        end = min(end, len(sorted_member_names) - 1)
+        
+        if start > end or start >= len(sorted_member_names):
+            return []
+
+        return sorted_member_names[start:end + 1]

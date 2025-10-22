@@ -7,7 +7,7 @@ import time
 import argparse
 from xmlrpc import client
 from app.parser import parsed_resp_array
-from app.datastore import BLOCKING_CLIENTS, BLOCKING_CLIENTS_LOCK, CHANNEL_SUBSCRIBERS, DATA_LOCK, DATA_STORE, add_to_sorted_set, cleanup_blocked_client, get_sorted_set_rank, is_client_subscribed, load_rdb_to_datastore, lrange_rtn, num_client_subscriptions, prepend_to_list, remove_elements_from_list, size_of_list, append_to_list, existing_list, get_data_entry, set_list, set_string, subscribe, unsubscribe
+from app.datastore import BLOCKING_CLIENTS, BLOCKING_CLIENTS_LOCK, CHANNEL_SUBSCRIBERS, DATA_LOCK, DATA_STORE, add_to_sorted_set, cleanup_blocked_client, get_sorted_set_range, get_sorted_set_rank, is_client_subscribed, load_rdb_to_datastore, lrange_rtn, num_client_subscriptions, prepend_to_list, remove_elements_from_list, size_of_list, append_to_list, existing_list, get_data_entry, set_list, set_string, subscribe, unsubscribe
 
 # --------------------------------------------------------------------------------
 
@@ -615,6 +615,38 @@ def handle_command(command: str, arguments: list, client: socket.socket) -> bool
         
         client.sendall(response)
         print(f"Sent: ZRANK response for member '{member}' in sorted set '{set_key}' to {client_address}. Rank: {rank}")
+
+    elif command == "ZRANGE":
+        if len(arguments) < 3:
+            response = b"-ERR wrong number of arguments for 'ZRANGE' command\r\n"
+            client.sendall(response)
+            print(f"Sent: ZRANGE argument error to {client_address}.")
+            return True
+        
+        set_key = arguments[0]
+        try:
+            start = int(arguments[1])
+            end = int(arguments[2])
+        except ValueError:
+            response = b"-ERR start or end is not an integer\r\n"
+            client.sendall(response)
+            return True
+
+        with DATA_LOCK:
+            if set_key not in DATA_STORE or DATA_STORE[set_key]["type"] != "sorted_set":
+                # Key does not exist or is not a sorted set -> return empty array
+                response = b"*0\r\n"
+                client.sendall(response)
+                print(f"Sent: ZRANGE empty response for non-existing or wrong-type key '{set_key}' to {client_address}.")
+                return True
+
+            list_of_members = get_sorted_set_range(set_key, start, end)
+
+            response = b"*{}\r\n".format(len(list_of_members)).encode()
+            for member in list_of_members:
+                response += b"${}\r\n{}\r\n".format(len(member), member).encode()
+            client.sendall(response)
+            print(f"Sent: ZRANGE response for sorted set '{set_key}' to {client_address}. Members: {list_of_members}")
 
     elif command == "QUIT":
         response = b"+OK\r\n"
