@@ -468,26 +468,10 @@ def remove_from_sorted_set(key: str, member: str) -> int:
                 del DATA_STORE[key]
         return 1
 
-# app/datastore.py - New/Updated Functions
-
-# ... (Ensure STREAMS = {} is defined at the top)
-
-# ----------------------------------------------------------------------
-# NEW: Combined ID Parsing and Validation Logic
-# ----------------------------------------------------------------------
-
 def _verify_and_parse_new_id(new_id_str: str, last_id_str: str | None) -> tuple[tuple[int, int], bytes | None]:
     """
     Parses and validates the new ID against the last ID in the stream.
-
-    Args:
-        new_id_str: The ID provided by the client (e.g., '1-1').
-        last_id_str: The ID of the last entry (e.g., '1-0'), or None if the stream is empty.
-
-    Returns:
-        A tuple: (parsed_new_id_tuple, error_bytes). 
-        - If validation succeeds, error_bytes is None.
-        - If validation fails, parsed_new_id_tuple is invalid/partial, and error_bytes holds the RESP error string.
+    Returns: (parsed_new_id_tuple, error_bytes). 
     """
     # 1. Basic Format and Explicit ID check for this stage
     if '*' in new_id_str:
@@ -518,7 +502,6 @@ def _verify_and_parse_new_id(new_id_str: str, last_id_str: str | None) -> tuple[
             last_seq = int(last_parts[1])
             last_id_tuple = (last_ms, last_seq)
         except ValueError:
-            # Should only happen if internal data is corrupted
             return None, b"-ERR Internal error reading last stream ID\r\n"
 
     # 3. Rule: ID must be strictly greater than the last ID
@@ -537,44 +520,43 @@ def _verify_and_parse_new_id(new_id_str: str, last_id_str: str | None) -> tuple[
     return new_id_tuple, None
 
 
-# ----------------------------------------------------------------------
-# UPDATED: xadd function
-# ----------------------------------------------------------------------
-
-def xadd(key: str, id: str, fields: dict[str, str]) -> int:
+def xadd(key: str, id: str, fields: dict[str, str]) -> str | bytes:
     """
     Adds an entry to a stream at the given key with the specified ID and fields.
-    Returns the RESP Bulk String of the added ID, or a RESP Error bytes on failure.
+    Returns the ID string on success, or a RESP Error bytes on failure.
     """
     with DATA_LOCK:
+        # 1. Type Check & Expiration Check 
+        data_entry = get_data_entry(key)
+        if data_entry is not None and data_entry.get("type") != "stream":
+            return b"-WRONGTYPE Operation against a key holding the wrong kind of value\r\n"
+        
+        # 2. Get last ID (safely handle non-existent key after expiration check)
         last_id_str = STREAMS[key][-1]["id"] if key in STREAMS and STREAMS[key] else None
         
-        # Call the consolidated validation function
-        parsed_id_tuple, error_response = _verify_and_parse_new_id(id, last_id_str)
+        # 3. Validation
+        # The first element of the tuple is ignored here, only the error_response is used
+        _, error_response = _verify_and_parse_new_id(id, last_id_str)
         
         if error_response is not None:
             return error_response
             
-        # ----------------------------------------------------
-        # Validation passed: proceed with adding the entry
-        # ----------------------------------------------------
-
-        # Ensure STREAMS and DATA_STORE are initialized (idempotent if already done)
+        # 4. Initialization (idempotent)
         if key not in STREAMS:
             STREAMS[key] = []
         if key not in DATA_STORE:
-            # We don't need to link 'value': STREAMS[key] anymore, just setting type is enough
-            # as the main data is managed separately in STREAMS, and we use verify_stream_key
             DATA_STORE[key] = {
                 "type": "stream",
-                "value": None,
+                "value": None, # Stream data is in STREAMS, not here
                 "expiry": None
             }
         
+        # 5. Add Entry
         entry = {
             "id": id,
             "fields": fields
         }
         STREAMS[key].append(entry)
         
+        # 6. Success: Return the ID string for command execution to format
         return id
