@@ -734,14 +734,13 @@ def handle_command(command: str, arguments: list, client: socket.socket) -> bool
         
         key = arguments[0]
         entry_id = arguments[1]
-        
-        # Arguments 2 onwards are field/value pairs, which must be parsed into a dict
         fields = {}
         for i in range(2, len(arguments) - 1, 2):
             fields[arguments[i]] = arguments[i + 1]
 
-
+        print("PRINT calling xadd")
         new_entry_id = xadd(key, entry_id, fields)
+
         response = b"$" + str(len(new_entry_id.encode())).encode() + b"\r\n" + new_entry_id.encode() + b"\r\n"
         client.sendall(response)
         print(f"Sent: XADD response for stream '{key}' to {client_address}. New entry ID: {new_entry_id}")
