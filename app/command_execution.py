@@ -119,7 +119,7 @@ def execute_single_command(command: str, arguments: list, client: socket.socket)
             # client.sendall(response
             return response
 
-    elif command == "REPLCONF": # <--- ADDED REPLCONF COMMAND
+    elif command == "REPLCONF": 
         # The master receives two REPLCONF commands from the replica:
         # 1. REPLCONF listening-port <PORT>
         # 2. REPLCONF capa psync2
@@ -127,7 +127,7 @@ def execute_single_command(command: str, arguments: list, client: socket.socket)
         response = b"+OK\r\n"
         return response
     
-elif command == "PSYNC": # <--- ADDED PSYNC COMMAND
+    elif command == "PSYNC": 
         # The master receives PSYNC ? -1 from the replica.
         # It must respond with +FULLRESYNC <REPL_ID> <OFFSET>\r\n encoded as a Simple String.
         
