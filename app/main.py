@@ -107,6 +107,8 @@ def main():
         ce.SERVER_ROLE = "slave"
         ce.MASTER_HOST = master_host
         ce.MASTER_PORT = master_port
+
+        connect_to_master()
     # ----------------------------------------
 
     try:
