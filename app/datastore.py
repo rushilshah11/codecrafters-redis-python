@@ -560,7 +560,7 @@ def xadd(key: str, id: str, fields: dict[str, str]) -> bytes:
         # The first element of the tuple is ignored here, only the error_response is used
         final_id_str, error_response = _verify_and_parse_new_id(id, last_id_str)
         print(f"final_id_str: {final_id_str}")
-        
+
         if error_response is not None:
             return error_response
             
@@ -577,10 +577,10 @@ def xadd(key: str, id: str, fields: dict[str, str]) -> bytes:
         
         # 5. Add Entry
         entry = {
-            "id": id,
+            "id": new_entry_id,
             "fields": fields
         }
         STREAMS[key].append(entry)
         
         # 6. Success: Return the ID string for command execution to format
-        return id.encode()
+        return new_entry_id.encode()
