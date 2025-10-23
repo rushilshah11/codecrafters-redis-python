@@ -559,6 +559,7 @@ def xadd(key: str, id: str, fields: dict[str, str]) -> bytes:
         # 3. Validation
         # The first element of the tuple is ignored here, only the error_response is used
         final_id_str, error_response = _verify_and_parse_new_id(id, last_id_str)
+        print(f"final_id_str: {final_id_str}")
         
         if error_response is not None:
             return error_response
