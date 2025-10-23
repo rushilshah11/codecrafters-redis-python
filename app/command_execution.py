@@ -726,6 +726,7 @@ def handle_command(command: str, arguments: list, client: socket.socket) -> bool
 
     elif command == "XADD":
         # XADD requires at least: key, id, field, value (4 arguments), and even number of field/value pairs
+        print("entered XADD")
         if len(arguments) < 4 or (len(arguments) - 2) % 2 != 0:
             response = b"-ERR wrong number of arguments for 'XADD' command\r\n"
             client.sendall(response)
