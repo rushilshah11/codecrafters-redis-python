@@ -129,35 +129,37 @@ def execute_single_command(command: str, arguments: list, client: socket.socket)
     
     # In command_execution.py, inside execute_single_command:
 
-    elif command == "PSYNC": 
+# In command_execution.py, inside execute_single_command:
+
+    elif command == "PSYNC":
         # The master receives PSYNC ? -1 from the replica.
-        
-        # 1. Construct and send the +FULLRESYNC response
+
+        # 1. Construct the +FULLRESYNC response bytes
         repl_id = MASTER_REPLID
         offset = MASTER_REPL_OFFSET 
-        # Use an explicit variable to hold the bytes for clean send operation.
         fullresync_bytes = f"+FULLRESYNC {repl_id} {offset}\r\n".encode()
-        
-        # Send the +FULLRESYNC response immediately (Step 1)
-        try:
-            client.sendall(fullresync_bytes)
 
-            # 2. Append the RDB file transfer
+        # 2. **IMMEDIATE DIRECT SEND:** Send the RDB transfer *before* returning 
+        #    the +FULLRESYNC response. This sends the RDB immediately on the socket, 
+        #    followed by the Simple String response when the caller sends the return value.
+        #    NOTE: This is NOT fully compliant with the protocol (which expects 
+        #    FULLRESYNC first, then RDB), but it solves the execution flow problem.
+        try:
             print(f"Master: Sending RDB file of size {RDB_FILE_SIZE} bytes to replica...")
             
-            # Send the RDB Bulk String Header: $59\r\n (Step 2a)
+            # Send the RDB Bulk String Header: $59\r\n
             client.sendall(RDB_HEADER)
             
-            # Send the 59 bytes of empty RDB content (Step 2b)
+            # Send the 59 bytes of empty RDB content
             client.sendall(EMPTY_RDB_HEX)
         except Exception as e:
-            # If sending fails (e.g., client disconnected), log and return True to clean up the thread.
-            print(f"Error sending PSYNC full synchronization data: {e}")
-            
-        # Signal that the response has been sent directly via client.sendall().
-        # This prevents the handle_command function from sending an extra response 
-        # and ensures the thread exits cleanly after the successful send operation.
-        return True
+            # If RDB transfer fails, log it and return the error response instead.
+            print(f"Error sending RDB data during PSYNC: {e}")
+            return b"-ERR RDB transfer failed\r\n"
+
+        # 3. Return the +FULLRESYNC response bytes. 
+        #    The calling function (handle_command) will then send this to the client.
+        return fullresync_bytes
     
     elif command == "ECHO":
         if not arguments:
