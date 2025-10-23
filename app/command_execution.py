@@ -750,15 +750,16 @@ def handle_command(command: str, arguments: list, client: socket.socket) -> bool
             # Format as a RESP Bulk String. Fixed the incorrect .encode() call on a bytes object.
             raw_id_bytes = new_entry_id_or_error
             blocked_client_condition = None
+            new_entry = None
+
             with BLOCKING_CLIENTS_LOCK:
                 if key in BLOCKING_CLIENTS and BLOCKING_CLIENTS[key]:
                     blocked_client_condition = BLOCKING_CLIENTS[key].pop(0)
 
             if blocked_client_condition:
             # Get the single new entry that was just added (it's the last one)
-                new_entry = None
                 with DATA_LOCK: # Acquire lock to safely access STREAMS
-                    if key in STREAMS and STREAMS[key] and STREAMS[key][-1]["id"].encode() == raw_id_bytes:
+                    if key in STREAMS and STREAMS[key]:
                         new_entry = STREAMS[key][-1]
                 
                 if new_entry:
