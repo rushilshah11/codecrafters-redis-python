@@ -7,12 +7,31 @@ from app.command_execution import handle_connection
 
 def main():
 
+    # --- ADDED: Argument Parsing for Port ---
+    port = 6379 # Default Redis port
+    args = sys.argv[1:]
+    
+    # Simple argument parsing loop
+    for i in range(0, len(args), 2):
+        if args[i] == "--port":
+            try:
+                # Use the value after --port
+                port = int(args[i + 1])
+            except (IndexError, ValueError):
+                print("Server Error: Invalid or missing port number after --port.")
+                return
+        # Add a placeholder for other args to be passed to command_execution
+        elif args[i] == "--dir" or args[i] == "--dbfilename":
+            pass # These are now handled in command_execution.py's import scope
+
+    # ----------------------------------------
+
     try:
         # This tells the operating system to create a listening point at $\texttt{localhost}$ (your computer) on port $\texttt{6379}$ (the standard Redis port).
 
         
-        server_socket = socket.create_server(("localhost", 6379), reuse_port=True)
-        print("Server: Starting server on localhost:6379...")
+        server_socket = socket.create_server(("localhost", port), reuse_port=True)
+        print(f"Server: Starting server on localhost:{port}...")
         print("Server: Listening for connections...")
     except OSError as e:
         print(f"Server Error: Could not start server: {e}")
