@@ -787,7 +787,7 @@ def handle_command(command: str, arguments: list, client: socket.socket) -> bool
 
         new_entry_id_or_error = xadd(key, entry_id, fields)
 
-        # Check if xadd returned an error (RESP errors start with '-')
+        i# Check if xadd returned an error (RESP errors start with '-')
         if new_entry_id_or_error.startswith(b'-'):
             response = new_entry_id_or_error
             client.sendall(response)
@@ -942,13 +942,11 @@ def handle_command(command: str, arguments: list, client: socket.socket) -> bool
                 return True
             
             key_to_block = keys[0]
-            id_to_wait_for = ids[0]
 
             # Create and register the condition
             client_condition = threading.Condition()
             client_condition.client_socket = client
             client_condition.key = key_to_block 
-            client_condition.id_to_wait_for = id_to_wait_for
 
             with BLOCKING_STREAMS_LOCK:
                 BLOCKING_STREAMS.setdefault(key_to_block, []).append(client_condition)
@@ -964,17 +962,7 @@ def handle_command(command: str, arguments: list, client: socket.socket) -> bool
             # 6. Post-block handling
             if notified:
                 # If True, XADD already sent the response.
-
-                keys_to_read = [key_to_block]
-                ids_to_read = [id_to_wait_for]
-               
-                final_stream_data = xread(keys_to_read, ids_to_read)
-
-                if final_stream_data:
-                    response = _xread_serialize_response(final_stream_data)
-                    client.sendall(response)
-                    print(f"Sent: XREAD response (unblocked, re-read) to {client_address}.")
-                    return True
+                return True 
             else:
                 # Timeout occurred. Clean up the blocking registration.
                 with BLOCKING_STREAMS_LOCK:
@@ -992,6 +980,8 @@ def handle_command(command: str, arguments: list, client: socket.socket) -> bool
         response = b"*0\r\n" 
         client.sendall(response)
         return True
+
+
 
     elif command == "QUIT":
         response = b"+OK\r\n"
