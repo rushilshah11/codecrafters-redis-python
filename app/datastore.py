@@ -770,3 +770,16 @@ def get_client_queued_commands(client) -> list:
     with BLOCKING_CLIENTS_LOCK:
         return CLIENT_STATE.get(client, {}).get("queue", [])
 
+def enqueue_client_command(client, command: str, arguments: list):
+    """
+    Adds a command and its arguments to the client's transaction queue.
+    Assumes client is already in a MULTI state.
+    """
+    with BLOCKING_CLIENTS_LOCK:
+        state = CLIENT_STATE.get(client, {})
+        # Ensure the queue exists (it should, after MULTI)
+        if "queue" not in state:
+            state["queue"] = []
+        
+        # Store the command as a tuple: (COMMAND, [arg1, arg2, ...])
+        state["queue"].append((command, arguments))

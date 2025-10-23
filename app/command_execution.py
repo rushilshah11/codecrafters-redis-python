@@ -7,7 +7,7 @@ import time
 import argparse
 from xmlrpc import client
 from app.parser import parsed_resp_array
-from app.datastore import BLOCKING_CLIENTS, BLOCKING_CLIENTS_LOCK, BLOCKING_STREAMS, BLOCKING_STREAMS_LOCK, CHANNEL_SUBSCRIBERS, DATA_LOCK, DATA_STORE, SORTED_SETS, STREAMS, add_to_sorted_set, cleanup_blocked_client, get_client_queued_commands, get_sorted_set_range, get_sorted_set_rank, get_stream_max_id, get_zscore, increment_key_value, is_client_in_multi, is_client_subscribed, load_rdb_to_datastore, lrange_rtn, num_client_subscriptions, prepend_to_list, remove_elements_from_list, remove_from_sorted_set, set_client_in_multi, size_of_list, append_to_list, existing_list, get_data_entry, set_list, set_string, subscribe, unsubscribe, xadd, xrange, xread
+from app.datastore import BLOCKING_CLIENTS, BLOCKING_CLIENTS_LOCK, BLOCKING_STREAMS, BLOCKING_STREAMS_LOCK, CHANNEL_SUBSCRIBERS, DATA_LOCK, DATA_STORE, SORTED_SETS, STREAMS, add_to_sorted_set, cleanup_blocked_client, enqueue_client_command, get_client_queued_commands, get_sorted_set_range, get_sorted_set_rank, get_stream_max_id, get_zscore, increment_key_value, is_client_in_multi, is_client_subscribed, load_rdb_to_datastore, lrange_rtn, num_client_subscriptions, prepend_to_list, remove_elements_from_list, remove_from_sorted_set, set_client_in_multi, size_of_list, append_to_list, existing_list, get_data_entry, set_list, set_string, subscribe, unsubscribe, xadd, xrange, xread
 
 # --------------------------------------------------------------------------------
 
@@ -92,6 +92,18 @@ def handle_command(command: str, arguments: list, client: socket.socket) -> bool
             client.sendall(response)
             print(f"Sent: Error for command '{command}' while subscribed to {client_address}.")
             return True
+        
+    if is_client_in_multi(client):
+        # Commands that must be executed immediately, even inside MULTI: MULTI, EXEC, DISCARD (and WATCH/UNWATCH, but not implemented)
+        TRANSACTION_CONTROL_COMMANDS = {"EXEC", "MULTI", "DISCARD"} 
+        
+        if command not in TRANSACTION_CONTROL_COMMANDS:
+            # Queue the command and respond with +QUEUED\r\n
+            enqueue_client_command(client, command, arguments)
+            response = b"+QUEUED\r\n"
+            client.sendall(response)
+            print(f"Sent: QUEUED response for command '{command}' to {client_address}.")
+            return True # Signal that the command was handled (queued)
 
     if command == "PING":
         if is_client_subscribed(client):
