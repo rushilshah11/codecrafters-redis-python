@@ -750,10 +750,7 @@ def handle_command(command: str, arguments: list, client: socket.socket) -> bool
             # Success: RESP bulk string with the new entry ID
             response = b"$" + str(len(new_entry_id.encode())).encode() + b"\r\n" + new_entry_id.encode() + b"\r\n"
             client.sendall(response)
-            print(f"Sent: XADD response for key '{key}' to {client_address}.")
-        return True
-
-
+            print(f"Sent: XADD response for key '{key}' to {client_address}. New ID: {new_entry_id}")
 
 
     elif command == "QUIT":
