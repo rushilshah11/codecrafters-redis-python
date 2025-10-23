@@ -18,6 +18,8 @@ SORTED_SETS = {}
 
 STREAMS = {}
 
+multi_flag = False
+
 # The central storage. Keys map to a dictionary containing value, type, and expiry metadata.
 # Example: {'mykey': {'type': 'string', 'value': 'myvalue', 'expiry': 1731671220000}}
 DATA_STORE = {}
@@ -734,8 +736,24 @@ def increment_key_value(key: str) -> tuple[int | None, str | None]:
         data_entry["value"] = str(new_value)
         return new_value, None
 
+def is_client_in_multi(client) -> bool:
+    """
+    Returns whether the given client has an active transaction (is in MULTI mode).
+    """
+    # Note: Assumes CLIENT_STATE access is guarded by BLOCKING_CLIENTS_LOCK 
+    # since it's used for subscription state. Reusing that lock here for consistency.
+    with BLOCKING_CLIENTS_LOCK:
+        state = CLIENT_STATE.get(client, {})
+        return state.get("is_in_multi", False)
 
-
+def set_client_in_multi(client, state: bool):
+    """
+    Sets the client's transaction state (True for MULTI, False otherwise).
+    """
+    with BLOCKING_CLIENTS_LOCK:
+        if client not in CLIENT_STATE:
+            CLIENT_STATE[client] = {}
+        CLIENT_STATE[client]["is_in_multi"] = state
 
 
 
