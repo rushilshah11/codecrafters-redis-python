@@ -723,8 +723,6 @@ def handle_command(command: str, arguments: list, client: socket.socket) -> bool
 
         client.sendall(response)
         print(f"Sent: TYPE response for key '{key}' to {client_address}. Type: {type_str}")
-    
-    # app/command_execution.py (inside handle_command function)
 
     elif command == "XADD":
         # XADD requires at least: key, id, field, value (4 arguments, length must be odd >= 3)
@@ -741,16 +739,18 @@ def handle_command(command: str, arguments: list, client: socket.socket) -> bool
         for i in range(2, len(arguments), 2):
             fields[arguments[i]] = arguments[i + 1]
 
+
         new_entry_id = xadd(key, entry_id, fields)
-        response = b"$" + str(len(new_entry_id.encode())).encode() + b"\r\n" + new_entry_id.encode() + b"\r\n"
-        
-        client.sendall(response)
-        print(f"Sent: XADD response for key '{key}' to {client_address}.")
+        if isinstance(new_entry_id, bytes):
+            # Error response from xadd
+            client.sendall(new_entry_id)
+            print(f"Sent: XADD error for key '{key}' to {client_address}.")
+        else:
+            # Success: RESP bulk string with the new entry ID
+            response = b"$" + str(len(new_entry_id.encode())).encode() + b"\r\n" + new_entry_id.encode() + b"\r\n"
+            client.sendall(response)
+            print(f"Sent: XADD response for key '{key}' to {client_address}.")
         return True
-
-
-
-
 
 
 
