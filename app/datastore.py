@@ -687,17 +687,8 @@ def increment_key_value(key: str) -> tuple[int | None, str | None]:
     Handles non-existent key, wrong type, and non-integer value errors.
     Returns: (new_value: int | None, error_message: str | None)
     """
-    print("entered increment val")
+    data_entry = get_data_entry(key) # This already checks for expiry
     with DATA_LOCK:
-        try:
-            # THIS IS WHERE IT FAILS
-            data_entry = get_data_entry(key) # This already checks for expiry
-        except Exception as e:
-            # Print the error and exit the function with a generic error for the client
-            print(f"ERROR during get_data_entry for INCR: {e}")
-            # You might need to print the raw entry for the key if it exists in DATA_STORE
-            # print(f"Raw DATA_STORE entry for {key}: {DATA_STORE.get(key)}")
-            return None, "-ERR Internal server error during key retrieval\r\n"
 
         print("retrieved data")
         # 1. Key does not exist: Initialize to 0, then increment to 1.
