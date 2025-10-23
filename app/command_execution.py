@@ -1012,8 +1012,12 @@ def handle_command(command: str, arguments: list, client: socket.socket) -> bool
             client.sendall(response)
             print(f"Sent: INCR response for key '{key}' to {client_address}. New value: {new_value}")
 
+    elif command == "MULTI":
+        
 
-    
+        response = b"+OK\r\n"
+        client.sendall(response)
+        print(f"Sent: OK to {client_address} for QUIT command. Closing connection.")
 
     elif command == "QUIT":
         response = b"+OK\r\n"
