@@ -741,16 +741,9 @@ def handle_command(command: str, arguments: list, client: socket.socket) -> bool
 
 
         new_entry_id = xadd(key, entry_id, fields)
-        if isinstance(new_entry_id, bytes):
-            # Error response from xadd
-            response = b"-ERR " + new_entry_id + b"\r\n"
-            client.sendall(response)
-            print(f"Sent: XADD error for key '{key}' to {client_address}.")
-        else:
-            # Success: RESP bulk string with the new entry ID
-            response = b"$" + str(len(new_entry_id.encode())).encode() + b"\r\n" + new_entry_id.encode() + b"\r\n"
-            client.sendall(response)
-            print(f"Sent: XADD response for key '{key}' to {client_address}. New ID: {new_entry_id}")
+        response = b"$" + str(len(new_entry_id.encode())).encode() + b"\r\n" + new_entry_id.encode() + b"\r\n"
+        client.sendall(response)
+        print(f"Sent: XADD response for stream '{key}' to {client_address}. New entry ID: {new_entry_id}")
 
 
     elif command == "QUIT":

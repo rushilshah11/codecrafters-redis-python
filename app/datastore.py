@@ -520,7 +520,7 @@ def _verify_and_parse_new_id(new_id_str: str, last_id_str: str | None) -> tuple[
     return new_id_tuple, None
 
 
-def xadd(key: str, id: str, fields: dict[str, str]) -> str | bytes:
+def xadd(key: str, id: str, fields: dict[str, str]) -> bytes:
     """
     Adds an entry to a stream at the given key with the specified ID and fields.
     Returns the ID string on success, or a RESP Error bytes on failure.
@@ -559,4 +559,4 @@ def xadd(key: str, id: str, fields: dict[str, str]) -> str | bytes:
         STREAMS[key].append(entry)
         
         # 6. Success: Return the ID string for command execution to format
-        return id
+        return id.encode()
