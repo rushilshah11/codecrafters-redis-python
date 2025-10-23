@@ -127,39 +127,27 @@ def execute_single_command(command: str, arguments: list, client: socket.socket)
         response = b"+OK\r\n"
         return response
     
-    # In command_execution.py, inside execute_single_command:
-
-# In command_execution.py, inside execute_single_command:
-
-    elif command == "PSYNC":
+elif command == "PSYNC": # <--- ADDED PSYNC COMMAND
         # The master receives PSYNC ? -1 from the replica.
-
-        # 1. Construct the +FULLRESYNC response bytes
+        # It must respond with +FULLRESYNC <REPL_ID> <OFFSET>\r\n encoded as a Simple String.
+        
+        # 1. Retrieve the master's replication ID and offset
         repl_id = MASTER_REPLID
-        offset = MASTER_REPL_OFFSET 
-        fullresync_bytes = f"+FULLRESYNC {repl_id} {offset}\r\n".encode()
+        offset = MASTER_REPL_OFFSET # Which is currently 0
+        
+        # 2. Construct the FULLRESYNC response string
+        fullresync_response_str = f"+FULLRESYNC {repl_id} {offset}\r\n"
+        fullresync_response_bytes = fullresync_response_str.encode()
 
-        # 2. **IMMEDIATE DIRECT SEND:** Send the RDB transfer *before* returning 
-        #    the +FULLRESYNC response. This sends the RDB immediately on the socket, 
-        #    followed by the Simple String response when the caller sends the return value.
-        #    NOTE: This is NOT fully compliant with the protocol (which expects 
-        #    FULLRESYNC first, then RDB), but it solves the execution flow problem.
-        try:
-            print(f"Master: Sending RDB file of size {RDB_FILE_SIZE} bytes to replica...")
-            
-            # Send the RDB Bulk String Header: $59\r\n
-            client.sendall(RDB_HEADER)
-            
-            # Send the 59 bytes of empty RDB content
-            client.sendall(EMPTY_RDB_HEX)
-        except Exception as e:
-            # If RDB transfer fails, log it and return the error response instead.
-            print(f"Error sending RDB data during PSYNC: {e}")
-            return b"-ERR RDB transfer failed\r\n"
+        # 3. Construct the RDB file response: $<length_of_file>\r\n<binary_contents_of_file>
+        # The RDB_HEADER is: b"$59\r\n"
+        # The EMPTY_RDB_HEX is the 59 bytes of content.
+        rdb_response_bytes = RDB_HEADER + EMPTY_RDB_HEX
 
-        # 3. Return the +FULLRESYNC response bytes. 
-        #    The calling function (handle_command) will then send this to the client.
-        return fullresync_bytes.decode()
+        # 4. Combine the responses: FULLRESYNC + RDB file
+        # The single client.sendall() call in handle_command will send both.
+        response = fullresync_response_bytes + rdb_response_bytes
+        return response
     
     elif command == "ECHO":
         if not arguments:
