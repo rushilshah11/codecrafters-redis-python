@@ -8,6 +8,7 @@ import app.command_execution as ce
 
 PING_COMMAND_RESP = b"*1\r\n$4\r\nPING\r\n"
 REPLCONF_CAPA_PSYNC2 = b"*3\r\n$8\r\nREPLCONF\r\n$4\r\ncapa\r\n$6\r\npsync2\r\n"
+PSYNC_COMMAND_RESP = b"*3\r\n$5\r\nPSYNC\r\n$1\r\n?\r\n$2\r\n-1\r\n"
 
 def read_simple_string_response(sock: socket.socket, expected: bytes):
     """
@@ -78,7 +79,16 @@ def connect_to_master(listening_port: int):
         if not read_simple_string_response(master_socket, b"+OK\r\n"): # REPLCONF expects +OK
             return
 
-        print("Replication: Handshake steps 1 & 2 complete.")
+        # ----------------------------------------------------
+        # Handshake Step 4: PSYNC ? -1 (Ignore response for now)
+        # ----------------------------------------------------
+        print("Replication: Sending PSYNC ? -1...")
+        master_socket.sendall(PSYNC_COMMAND_RESP)
+        
+        # We are instructed to ignore the master's response (+FULLRESYNC...) for this stage.
+        # We'll handle reading the response in a later stage.
+
+        print("Replication: Handshake steps 1, 2, & 3 complete (PSYNC sent).")
         
         # Store the socket for later use
         ce.MASTER_SOCKET = master_socket
