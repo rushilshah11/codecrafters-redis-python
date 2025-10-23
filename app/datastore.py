@@ -665,6 +665,7 @@ def xread(keys: list[str], last_ids: list[str]) -> dict[str, list[dict]]:
         return result
 
 def get_stream_max_id(key: str) -> str:
+
     """
     Returns the ID of the last entry in the stream.
     Used for '$' in XREAD to mean "read from the end".
@@ -679,3 +680,62 @@ def get_stream_max_id(key: str) -> str:
         # If stream is empty, we return "0-0" so that the first valid entry (0-1, 1-0, etc.) 
         # is correctly recognized as greater than the starting ID.
         return "0-0"
+    
+def increment_key_value(key: str) -> tuple[int | None, str | None]:
+    """
+    Atomically increments the integer value of a key by one.
+    Handles non-existent key, wrong type, and non-integer value errors.
+    Returns: (new_value: int | None, error_message: str | None)
+    """
+    with DATA_LOCK:
+        data_entry = get_data_entry(key) # This already checks for expiry
+
+        # 1. Key does not exist: Initialize to 0, then increment to 1.
+        if data_entry is None:
+            # We must set the key to "1" directly, not "0" then "1"
+            DATA_STORE[key] = {
+                "type": "string",
+                "value": "1",
+                "expiry": None
+            }
+            return 1, None
+
+        # 2. Key exists but is the wrong type
+        if data_entry.get("type") != "string":
+            return None, "-WRONGTYPE Operation against a key holding the wrong kind of value\r\n"
+
+        current_value_str = data_entry["value"]
+
+        # 3. Key exists and is a string, but not a valid integer
+        try:
+            current_value = int(current_value_str)
+        except ValueError:
+            return None, "-ERR value is not an integer or out of range\r\n"
+
+        # 4. Perform increment and check for overflow (Redis uses signed 64-bit integers)
+        # Note: Python integers don't overflow, so we must check explicitly.
+        # Max signed 64-bit integer: 2^63 - 1
+        MAX_64_BIT = 9223372036854775807
+        MIN_64_BIT = -9223372036854775808
+
+        if current_value >= MAX_64_BIT or current_value < MIN_64_BIT:
+            # An increment will definitely cause an overflow from MAX_64_BIT,
+            # and we should prevent modification if the value is already at a limit
+            return None, "-ERR increment or decrement would overflow\r\n"
+        
+        # Redis behavior: INCR stops at MAX_64_BIT, meaning you can't INCR 9223372036854775807
+        if current_value == MAX_64_BIT:
+            return None, "-ERR increment or decrement would overflow\r\n"
+            
+        new_value = current_value + 1
+
+        # 5. Update and return
+        data_entry["value"] = str(new_value)
+        return new_value, None
+
+
+
+
+
+
+
