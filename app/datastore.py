@@ -687,6 +687,7 @@ def increment_key_value(key: str) -> tuple[int | None, str | None]:
     Handles non-existent key, wrong type, and non-integer value errors.
     Returns: (new_value: int | None, error_message: str | None)
     """
+    print("entered increment val")
     with DATA_LOCK:
         data_entry = get_data_entry(key) # This already checks for expiry
 
