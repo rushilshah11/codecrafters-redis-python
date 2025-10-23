@@ -690,6 +690,7 @@ def increment_key_value(key: str) -> tuple[int | None, str | None]:
     with DATA_LOCK:
         data_entry = get_data_entry(key) # This already checks for expiry
 
+        print("retrieved data")
         # 1. Key does not exist: Initialize to 0, then increment to 1.
         if data_entry is None:
             # We must set the key to "1" directly, not "0" then "1"
