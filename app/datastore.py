@@ -462,7 +462,7 @@ def remove_from_sorted_set(key: str, member: str) -> int:
             return 0
         
         del SORTED_SETS[key][member]
-        if not sorted_sets[key]:
+        if not SORTED_SETS[key]:
             del SORTED_SETS[key]
             if key in DATA_STORE:
                 del DATA_STORE[key]
