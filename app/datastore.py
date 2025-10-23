@@ -526,20 +526,12 @@ def xadd(key: str, id: str, fields: dict[str, str]) -> bytes:
     Returns the ID string on success, or a RESP Error bytes on failure.
     """
     with DATA_LOCK:
-        # 1. Type Check & Expiration Check 
-        data_entry = get_data_entry(key)
-        if data_entry is not None and data_entry.get("type") != "stream":
-            print("XADD Error: Key exists with wrong type.")
-            return b"-WRONGTYPE Operation against a key holding the wrong kind of value\r\n"
         
-        print("passed type check")
         # 2. Get last ID (safely handle non-existent key after expiration check)
         last_id_str = None
         if key in STREAMS and STREAMS[key]:
             last_id_str = STREAMS[key][-1]["id"]
-            print("got last id:", last_id_str)
 
-        print("about to validate id:", id)
         # 3. Validation
         # The first element of the tuple is ignored here, only the error_response is used
         _, error_response = _verify_and_parse_new_id(id, last_id_str)
