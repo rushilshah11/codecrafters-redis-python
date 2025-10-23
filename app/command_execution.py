@@ -1035,7 +1035,7 @@ def handle_command(command: str, arguments: list, client: socket.socket) -> bool
             client.sendall(response)
             print(f"Sent: OK to {client_address} for EXEC command.")
         else:
-            response = b"-ERR EXEC without MULTI\r\n\r\n"
+            response = b"-ERR EXEC without MULTI\r\n"
             client.sendall(response)
             print(f"Sent: Error to {client_address} for EXEC command.")
 
