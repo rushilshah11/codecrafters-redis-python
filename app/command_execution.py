@@ -113,6 +113,14 @@ def execute_single_command(command: str, arguments: list, client: socket.socket)
             # client.sendall(response
             return response
 
+    elif command == "REPLCONF": # <--- ADDED REPLCONF COMMAND
+        # The master receives two REPLCONF commands from the replica:
+        # 1. REPLCONF listening-port <PORT>
+        # 2. REPLCONF capa psync2
+        # For this stage, we simply respond with +OK\r\n for both, regardless of arguments.
+        response = b"+OK\r\n"
+        return response
+    
     elif command == "ECHO":
         if not arguments:
             response = b"-ERR wrong number of arguments for 'echo' command\r\n"
