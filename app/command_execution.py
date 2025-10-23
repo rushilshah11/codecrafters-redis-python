@@ -82,13 +82,10 @@ def execute_single_command(command: str, arguments: list, client: socket.socket)
     Executes a single command and sends the response.
     Returns True if the command was processed successfully, False otherwise (e.g., unknown command).
     """
-    client_address = client.getpeername()
-
     if is_client_subscribed(client):
         ALLOWED_COMMANDS_WHEN_SUBSCRIBED = {"SUBSCRIBE", "UNSUBSCRIBE", "PING", "QUIT", "PSUBSCRIBE", "PUNSUBSCRIBE"}
         if command not in ALLOWED_COMMANDS_WHEN_SUBSCRIBED:
             response = b"-ERR Can't execute '" + command.encode() + b"' when client is subscribed\r\n"
-            print(f"Sent: Error for command '{command}' while subscribed to {client_address}.")
             return response
         
 
@@ -104,12 +101,10 @@ def execute_single_command(command: str, arguments: list, client: socket.socket)
             response = b"*" + str(len(response_parts)).encode() + b"\r\n" + b"".join(response_parts)
             # client.sendall(response
             return response
-            print(f"Sent: PING response to subscribed client {client_address}.")
         else:
             response = b"+PONG\r\n"
             # client.sendall(response
             return response
-            print(f"Sent: PONG to {client_address}.")
 
     elif command == "ECHO":
         if not arguments:
@@ -131,15 +126,12 @@ def execute_single_command(command: str, arguments: list, client: socket.socket)
         
         # client.sendall(response
         return response
-        print(f"Sent: ECHO response '{msg_str}' to {client_address}.")
 
     elif command == "SET":
         if len(arguments) < 2:
             response = b"-ERR wrong number of arguments for 'set' command\r\n"
             # client.sendall(response
             return response
-            print(f"Sent: SET argument error to {client_address}.")
-            return True # Go back to listening for more data
         
         key = arguments[0]
         value = arguments[1]
@@ -156,7 +148,6 @@ def execute_single_command(command: str, arguments: list, client: socket.socket)
                     response = f"-ERR syntax error\r\n".encode()
                     # client.sendall(response
                     return response
-                    return True 
 
                 try:
                     # Convert the duration argument (string) to an integer first
@@ -175,13 +166,11 @@ def execute_single_command(command: str, arguments: list, client: socket.socket)
                     response = b"-ERR value is not an integer or out of range\r\n"
                     # client.sendall(response
                     return response
-                    return True 
             else:
                 # Handle unrecognized option
                 response = f"-ERR syntax error\r\n".encode()
                 # client.sendall(response
                 return response
-                return True 
         
         current_time = int(time.time() * 1000)
         
@@ -194,15 +183,12 @@ def execute_single_command(command: str, arguments: list, client: socket.socket)
         response = b"+OK\r\n"
         # client.sendall(response
         return response
-        print(f"Sent: OK to {client_address} for SET command. Expiry: {expiry_timestamp}")
-
+    
     elif command == "GET":
         if not arguments:
             response = b"-ERR wrong number of arguments for 'get' command\r\n"
             # client.sendall(response
             return response
-            print(f"Sent: GET argument error to {client_address}.")
-            return True
             
         key = arguments[0]
         
@@ -224,15 +210,12 @@ def execute_single_command(command: str, arguments: list, client: socket.socket)
             
         # client.sendall(response
         return response
-        print(f"Sent: GET response for key '{key}' to {client_address}.")
     
     elif command == "LRANGE":
         if not arguments or len(arguments) < 3:
             response = b"-ERR wrong number of arguments for 'lrange' command\r\n"
             # client.sendall(response
             return response
-            print(f"Sent: LRANGE argument error to {client_address}.")
-            return True
 
         list_key = arguments[0]
         start = int(arguments[1])
@@ -249,15 +232,12 @@ def execute_single_command(command: str, arguments: list, client: socket.socket)
         response = b"*" + str(len(list_elements)).encode() + b"\r\n" + b"".join(response_parts)
         # client.sendall(response
         return response
-        print(f"Sent: LRANGE response for key '{list_key}' to {client_address}.")
 
     elif command == "LPUSH":
         if not arguments:
             response = b"-ERR wrong number of arguments for 'lpush' command\r\n"
             # client.sendall(response
             return response
-            print(f"Sent: LPUSH argument error to {client_address}.")
-            return True
         
         list_key = arguments[0]
         elements = arguments[1:]
@@ -274,30 +254,24 @@ def execute_single_command(command: str, arguments: list, client: socket.socket)
         response = b":{size}\r\n".replace(b"{size}", str(size).encode())
         # client.sendall(response
         return response
-        print(f"Sent: LPUSH response for key '{list_key}' to {client_address}.")
-    
+        
     elif command == "LLEN":
         if not arguments:
             response = b"-ERR wrong number of arguments for 'llen' command\r\n"
             # client.sendall(response
             return response
-            print(f"Sent: LLEN argument error to {client_address}.")
-            return True
         
         list_key = arguments[0]
         size = size_of_list(list_key)
         response = b":{size}\r\n".replace(b"{size}", str(size).encode())
         # client.sendall(response
         return response
-        print(f"Sent: LLEN response for key '{list_key}' to {client_address}.")
 
     elif command == "LPOP":
         if not arguments:
             response = b"-ERR wrong number of arguments for 'lpop' command\r\n"
             # client.sendall(response
             return response
-            print(f"Sent: LPOP argument error to {client_address}.")
-            return True
         
         list_key = arguments[0]
         arguments = arguments[1:]
@@ -306,8 +280,6 @@ def execute_single_command(command: str, arguments: list, client: socket.socket)
             response = b"$-1\r\n"  # RESP Null Bulk String
             # client.sendall(response
             return response
-            print(f"Sent: LPOP null response for non-existing list '{list_key}' to {client_address}.")
-            return True
 
         if arguments == []:
             list_elements = remove_elements_from_list(list_key, 1)
@@ -317,8 +289,6 @@ def execute_single_command(command: str, arguments: list, client: socket.socket)
             response = b"$-1\r\n"  # RESP Null Bulk String
             # client.sendall(response
             return response
-            print(f"Sent: LPOP null response for empty list '{list_key}' to {client_address}.")
-            return True
 
         response_parts = []
         for element in list_elements: 
@@ -334,8 +304,6 @@ def execute_single_command(command: str, arguments: list, client: socket.socket)
         
         # client.sendall(response
         return response
-
-        print(f"Sent: LPOP response '{list_elements}' for list '{list_key}' to {client_address}.")
 
     elif command == "RPUSH":
         # 1. Argument and Key setup
@@ -439,7 +407,6 @@ def execute_single_command(command: str, arguments: list, client: socket.socket)
             response = b"-ERR timeout is not a float\r\n"
             # client.sendall(response
             return response
-            return True
         
         # 2. Fast path: if the list already has elements, pop and return immediately.
         #    This mirrors Redis: BLPOP behaves like LPOP when the list is non-empty.
@@ -456,7 +423,6 @@ def execute_single_command(command: str, arguments: list, client: socket.socket)
 
                 # client.sendall(response
                 return response
-                return True
             # If remove_elements_from_list returns None unexpectedly, fall through to blocking.
             # (This is unlikely if size_of_list returned > 0, but handling it avoids crashes.)
 
@@ -502,7 +468,6 @@ def execute_single_command(command: str, arguments: list, client: socket.socket)
             response = b"*-1\r\n"
             # client.sendall(response
             return response
-            return True
 
     elif command == "CONFIG":
         if len(arguments) != 2 or arguments[0].upper() != "GET":
@@ -510,7 +475,6 @@ def execute_single_command(command: str, arguments: list, client: socket.socket)
             response = b"-ERR wrong number of arguments for 'CONFIG GET' command\r\n"
             # client.sendall(response
             return response
-            return True
 
         # 1. Extract the parameter name requested by the client
         param_name = arguments[1].lower()
@@ -551,15 +515,12 @@ def execute_single_command(command: str, arguments: list, client: socket.socket)
 
         # client.sendall(response
         return response
-        print(f"Sent: CONFIG GET response for '{param_name}' to {client_address}.")
 
     elif command == "KEYS":
         if len(arguments) != 1:
             response = b"-ERR wrong number of arguments for 'KEYS' command\r\n"
             # client.sendall(response
             return response
-            print(f"Sent: KEYS argument error to {client_address}.")
-            return True
         
         pattern = arguments[0]
         
@@ -580,7 +541,6 @@ def execute_single_command(command: str, arguments: list, client: socket.socket)
         response = b"*" + str(len(matching_keys)).encode() + b"\r\n" + b"".join(response_parts)
         # client.sendall(response
         return response
-        print(f"Sent: KEYS response for pattern '{pattern}' to {client_address}.")
 
     elif command == "SUBSCRIBE":
         # Construct RESP Array response
@@ -596,15 +556,12 @@ def execute_single_command(command: str, arguments: list, client: socket.socket)
         response = b"*" + str(len(response_parts)).encode() + b"\r\n" + b"".join(response_parts)
         # client.sendall(response
         return response
-        print(f"Sent: SUBSCRIBE response for channel '{channel}' to {client_address}.")
 
     elif command == "PUBLISH":
         if len(arguments) != 2:
             response = b"-ERR wrong number of arguments for 'PUBLISH' command\r\n"
             # client.sendall(response
             return response
-            print(f"Sent: PUBLISH argument error to {client_address}.")
-            return True
         
         channel = arguments[0]
         message = arguments[1]
@@ -631,7 +588,6 @@ def execute_single_command(command: str, arguments: list, client: socket.socket)
         response = b":" + str(recipients).encode() + b"\r\n"
         # client.sendall(response
         return response
-        print(f"Sent: PUBLISH response with {recipients} recipients to {client_address}.")
 
     elif command == "UNSUBSCRIBE":
         channel = arguments[0] if arguments else ""
@@ -646,15 +602,12 @@ def execute_single_command(command: str, arguments: list, client: socket.socket)
         response = b"*" + str(len(response_parts)).encode() + b"\r\n" + b"".join(response_parts)
         # client.sendall(response
         return response
-        print(f"Sent: UNSUBSCRIBE response for channel '{channel}' to {client_address}.")
 
     elif command == "ZADD":
         if len(arguments) < 3:
             response = b"-ERR wrong number of arguments for 'zadd' command\r\n"
             # client.sendall(response
             return response
-            print(f"Sent: ZADD argument error (too few args) to {client_address}.")
-            return True
         
         set_key = arguments[0]
         
@@ -662,7 +615,6 @@ def execute_single_command(command: str, arguments: list, client: socket.socket)
              response = b"-ERR only single score/member pair supported in this stage\r\n"
              # client.sendall(response
              return response
-             return True
 
         # Extract the single score and member pair
         score_str = arguments[1]
@@ -676,14 +628,12 @@ def execute_single_command(command: str, arguments: list, client: socket.socket)
             response = b"-ERR value is not a valid float\r\n"
             # client.sendall(response
             return response
-            return True
 
         # ZADD returns the number of *newly added* elements.
         # Encode as a RESP Integer (e.g., :1\r\n)
         response = b":" + str(num_new_elements).encode() + b"\r\n"
         # client.sendall(response
         return response
-        print(f"Sent: ZADD response for sorted set '{set_key}' to {client_address}. New elements: {num_new_elements}")  
 
     elif command == "ZRANK":
         set_key = arguments[0] if len(arguments) > 0 else ""
@@ -697,15 +647,12 @@ def execute_single_command(command: str, arguments: list, client: socket.socket)
         
         # client.sendall(response
         return response
-        print(f"Sent: ZRANK response for member '{member}' in sorted set '{set_key}' to {client_address}. Rank: {rank}")
 
     elif command == "ZRANGE":
         if len(arguments) < 3:
             response = b"-ERR wrong number of arguments for 'ZRANGE' command\r\n"
             # client.sendall(response
             return response
-            print(f"Sent: ZRANGE argument error to {client_address}.")
-            return True
         
         set_key = arguments[0]
         try:
@@ -715,7 +662,6 @@ def execute_single_command(command: str, arguments: list, client: socket.socket)
             response = b"-ERR start or end is not an integer\r\n"
             # client.sendall(response
             return response
-            return True
 
 
         list_of_members = get_sorted_set_range(set_key, start, end)
@@ -727,15 +673,12 @@ def execute_single_command(command: str, arguments: list, client: socket.socket)
         response = b"*" + str(len(list_of_members)).encode() + b"\r\n" + b"".join(response_parts)
         # client.sendall(response
         return response
-        print(f"Sent: ZRANGE response for sorted set '{set_key}' to {client_address}. Members: {list_of_members}")
 
     elif command == "ZCARD":
         if len(arguments) < 1:
             response = b"-ERR wrong number of arguments for 'ZCARD' command\r\n"
             # client.sendall(response
             return response
-            print(f"Sent: ZCARD argument error to {client_address}.")
-            return True
         
         set_key = arguments[0]
         
@@ -748,15 +691,12 @@ def execute_single_command(command: str, arguments: list, client: socket.socket)
         response = b":" + str(cardinality).encode() + b"\r\n"
         # client.sendall(response
         return response
-        print(f"Sent: ZCARD response for sorted set '{set_key}' to {client_address}. Cardinality: {cardinality}")
 
     elif command == "ZSCORE":
         if len(arguments) < 2:
             response = b"-ERR wrong number of arguments for 'ZSCORE' command\r\n"
             # client.sendall(response
             return response
-            print(f"Sent: ZSCORE argument error to {client_address}.")
-            return True
         
         set_key = arguments[0]
         member = arguments[1]
@@ -773,15 +713,12 @@ def execute_single_command(command: str, arguments: list, client: socket.socket)
 
         # client.sendall(response
         return response
-        print(f"Sent: ZSCORE response for member '{member}' in sorted set '{set_key}' to {client_address}.")
     
     elif command == "ZREM":
         if len(arguments) < 2:
             response = b"-ERR wrong number of arguments for 'ZREM' command\r\n"
             # client.sendall(response
             return response
-            print(f"Sent: ZREM argument error to {client_address}.")
-            return True
         
         set_key = arguments[0]
         members = arguments[1]
@@ -791,15 +728,12 @@ def execute_single_command(command: str, arguments: list, client: socket.socket)
         response = b":" + str(removed_count).encode() + b"\r\n"
         # client.sendall(response
         return response
-        print(f"Sent: ZREM response for sorted set '{set_key}' to {client_address}. Removed count: {removed_count}")
     
     elif command == "TYPE":
         if len(arguments) < 1:
             response = b"-ERR wrong number of arguments for 'TYPE' command\r\n"
             # client.sendall(response
             return response
-            print(f"Sent: TYPE argument error to {client_address}.")
-            return True
         
         key = arguments[0]
 
@@ -816,8 +750,7 @@ def execute_single_command(command: str, arguments: list, client: socket.socket)
 
         # client.sendall(response
         return response
-        print(f"Sent: TYPE response for key '{key}' to {client_address}. Type: {type_str}")
-
+    
     elif command == "XADD":
         # XADD requires at least: key, id, field, value (4 arguments), and even number of field/value pairs
 
@@ -825,7 +758,6 @@ def execute_single_command(command: str, arguments: list, client: socket.socket)
             response = b"-ERR wrong number of arguments for 'XADD' command\r\n"
             # client.sendall(response
             return response
-            return True
         
         key = arguments[0]
         entry_id = arguments[1]
@@ -840,8 +772,6 @@ def execute_single_command(command: str, arguments: list, client: socket.socket)
             response = new_entry_id_or_error
             # client.sendall(response
             return response
-            print(f"Sent: XADD error response to {client_address}.")
-            return True
         else:
             # Success: new_entry_id_or_error is the raw ID bytes (e.g. b"1-0").
             # Format as a RESP Bulk String. Fixed the incorrect .encode() call on a bytes object.
@@ -880,15 +810,12 @@ def execute_single_command(command: str, arguments: list, client: socket.socket)
             response = b"$" + length_bytes + b"\r\n" + raw_id_bytes + b"\r\n"
             # client.sendall(response
             return response
-            print(f"Sent: XADD response for stream '{key}' to {client_address}. New entry ID: {raw_id_bytes.decode()}")
 
     elif command == "XRANGE":
         if len(arguments) < 3:
             response = b"-ERR wrong number of arguments for 'XRANGE' command\r\n"
             # client.sendall(response
             return response
-            print(f"Sent: XRANGE argument error to {client_address}.")
-            return True
         
         key = arguments[0]
         start_id = arguments[1]
@@ -924,7 +851,6 @@ def execute_single_command(command: str, arguments: list, client: socket.socket)
         response = b"*" + str(len(response_parts)).encode() + b"\r\n" + b"".join(response_parts)
         # client.sendall(response
         return response
-        print(f"Sent: XRANGE response for stream '{key}' to {client_address}.")
 
     elif command == "XREAD":
         # Format: XREAD [BLOCK <ms>] STREAMS key1 key2 ... id1 id2 ...
@@ -942,14 +868,12 @@ def execute_single_command(command: str, arguments: list, client: socket.socket)
                 response = b"-ERR timeout is not an integer\r\n"
                 # client.sendall(response
                 return response
-                return True
         
         # 2. Check for STREAMS keyword and argument count
         if len(arguments) < arguments_start_index + 3 or arguments[arguments_start_index].upper() != "STREAMS":
             response = b"-ERR wrong number of arguments or missing STREAMS keyword for 'XREAD' command\r\n"
             # client.sendall(response
             return response
-            return True
 
         # 3. Find the split point between keys and IDs
         streams_keyword_index = arguments_start_index
@@ -960,7 +884,6 @@ def execute_single_command(command: str, arguments: list, client: socket.socket)
             response = b"-ERR unaligned key/id pairs for 'XREAD' command\r\n"
             # client.sendall(response
             return response
-            return True
 
         num_keys = num_args_after_streams // 2
         
@@ -985,8 +908,6 @@ def execute_single_command(command: str, arguments: list, client: socket.socket)
             response = _xread_serialize_response(stream_data)
             # client.sendall(response
             return response
-            print(f"Sent: XREAD response (non-blocking) to {client_address}.")
-            return True
         
         # 5. Blocking path
         if timeout_ms is not None:
@@ -1004,7 +925,6 @@ def execute_single_command(command: str, arguments: list, client: socket.socket)
                 response = b"-ERR only single key blocking supported in this stage\r\n"
                 # client.sendall(response
                 return response
-                return True
             
             key_to_block = keys[0]
 
@@ -1040,21 +960,17 @@ def execute_single_command(command: str, arguments: list, client: socket.socket)
                 response = b"*-1\r\n"
                 # client.sendall(response
                 return response
-                return True
 
         # 7. Non-blocking path (no data, no BLOCK keyword) - returns Null Array
         response = b"*0\r\n" 
         # client.sendall(response
         return response
-        return True
 
     elif command == "INCR":
         if len(arguments) != 1:
             response = b"-ERR wrong number of arguments for 'incr' command\r\n"
             # client.sendall(response
             return response
-            print(f"Sent: INCR argument error to {client_address}.")
-            return True
 
         key = arguments[0]
         
@@ -1063,15 +979,13 @@ def execute_single_command(command: str, arguments: list, client: socket.socket)
         
         if error_message:
             # Handle error from the helper (WRONGTYPE or not an integer/overflow)
-            client.sendall(error_message.encode())
-            print(f"Sent: INCR error response to {client_address}.")
-            return True
+            # client.sendall(error_message.encode())
+            return error_message.encode()
         else:
             # Success: new_value is an integer. Return RESP Integer.
             response = b":" + str(new_value).encode() + b"\r\n"
             # client.sendall(response
             return response
-            print(f"Sent: INCR response for key '{key}' to {client_address}. New value: {new_value}")
 
     elif command == "MULTI":
 
@@ -1079,8 +993,6 @@ def execute_single_command(command: str, arguments: list, client: socket.socket)
             response = b"-ERR MULTI calls can not be nested\r\n"
             # client.sendall(response
             return response
-            print(f"Sent: MULTI nested error to {client_address}.")
-            return True
         
         # Set the client's state to "in transaction"
         set_client_in_multi(client, True)
@@ -1088,7 +1000,6 @@ def execute_single_command(command: str, arguments: list, client: socket.socket)
         response = b"+OK\r\n"
         # client.sendall(response
         return response
-        print(f"Sent: OK to {client_address} for MULTI command.")
 
     elif command == "EXEC":
         if is_client_in_multi(client):
@@ -1101,8 +1012,6 @@ def execute_single_command(command: str, arguments: list, client: socket.socket)
                 response = b"*0\r\n"
                 # client.sendall(response
                 return response
-                print(f"Sent: Empty array response to {client_address} for EXEC command.")
-                return True
             
             # 4. Execute all queued commands and collect responses
             response_parts = []
@@ -1137,19 +1046,17 @@ def execute_single_command(command: str, arguments: list, client: socket.socket)
             response = b"-ERR EXEC without MULTI\r\n"
             # client.sendall(response
             return response
-            print(f"Sent: Error to {client_address} for EXEC command.")
-
+        
     elif command == "QUIT":
         response = b"+OK\r\n"
         # client.sendall(response
         return response
-        print(f"Sent: OK to {client_address} for QUIT command. Closing connection.")
-        cleanup_blocked_client(client)
-        return False  # Signal to close the connection
 
     return b"-ERR unknown command '" + command.encode() + b"'\r\n"
 
 def handle_command(command: str, arguments: list, client: socket.socket) -> bool:
+    client_address = client.getpeername()
+
 
     if is_client_in_multi(client):
         # Commands that must be executed immediately, even inside MULTI: MULTI, EXEC, DISCARD (and WATCH/UNWATCH, but not implemented)
@@ -1159,8 +1066,7 @@ def handle_command(command: str, arguments: list, client: socket.socket) -> bool
             # Queue the command and respond with +QUEUED\r\n
             enqueue_client_command(client, command, arguments)
             response = b"+QUEUED\r\n"
-            # client.sendall(response
-            return response
+            client.sendall(response)
             print(f"Sent: QUEUED response for command '{command}' to {client_address}.")
             return True # Signal that the command was handled (queued)
         
