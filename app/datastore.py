@@ -468,23 +468,113 @@ def remove_from_sorted_set(key: str, member: str) -> int:
                 del DATA_STORE[key]
         return 1
 
-def xadd(key: str, id: str, fields: dict[str, str]) -> str:
+# app/datastore.py - New/Updated Functions
+
+# ... (Ensure STREAMS = {} is defined at the top)
+
+# ----------------------------------------------------------------------
+# NEW: Combined ID Parsing and Validation Logic
+# ----------------------------------------------------------------------
+
+def _verify_and_parse_new_id(new_id_str: str, last_id_str: str | None) -> tuple[tuple[int, int], bytes | None]:
+    """
+    Parses and validates the new ID against the last ID in the stream.
+
+    Args:
+        new_id_str: The ID provided by the client (e.g., '1-1').
+        last_id_str: The ID of the last entry (e.g., '1-0'), or None if the stream is empty.
+
+    Returns:
+        A tuple: (parsed_new_id_tuple, error_bytes). 
+        - If validation succeeds, error_bytes is None.
+        - If validation fails, parsed_new_id_tuple is invalid/partial, and error_bytes holds the RESP error string.
+    """
+    # 1. Basic Format and Explicit ID check for this stage
+    if '*' in new_id_str:
+        return None, b"-ERR Only explicit stream IDs are supported in this stage\r\n"
+
+    try:
+        new_parts = new_id_str.split('-')
+        if len(new_parts) != 2:
+            return None, b"-ERR Invalid stream ID format\r\n"
+            
+        new_ms = int(new_parts[0])
+        new_seq = int(new_parts[1])
+        new_id_tuple = (new_ms, new_seq)
+    except ValueError:
+        return None, b"-ERR Invalid stream ID format\r\n"
+
+    # 2. Rule: 0-0 is always invalid (min valid ID is 0-1)
+    if new_id_str == "0-0":
+        return None, b"-ERR The ID specified in XADD must be greater than 0-0\r\n"
+
+    # Determine the ID of the last entry
+    if last_id_str is None:
+        last_id_tuple = (0, 0)  # Conceptual ID for empty stream
+    else:
+        try:
+            last_parts = last_id_str.split('-')
+            last_ms = int(last_parts[0])
+            last_seq = int(last_parts[1])
+            last_id_tuple = (last_ms, last_seq)
+        except ValueError:
+            # Should only happen if internal data is corrupted
+            return None, b"-ERR Internal error reading last stream ID\r\n"
+
+    # 3. Rule: ID must be strictly greater than the last ID
+    last_ms, last_seq = last_id_tuple
+
+    # a) millisecondsTime must be strictly greater than or equal to last
+    if new_ms < last_ms:
+        return None, b"-ERR The ID specified in XADD is equal or smaller than the target stream top item\r\n"
+
+    # b) If millisecondsTime are equal, sequenceNumber must be strictly greater
+    if new_ms == last_ms:
+        if new_seq <= last_seq:
+            return None, b"-ERR The ID specified in XADD is equal or smaller than the target stream top item\r\n"
+
+    # Validation succeeded
+    return new_id_tuple, None
+
+
+# ----------------------------------------------------------------------
+# UPDATED: xadd function
+# ----------------------------------------------------------------------
+
+def xadd(key: str, id: str, fields: dict[str, str]) -> int:
     """
     Adds an entry to a stream at the given key with the specified ID and fields.
-    Returns the ID of the added entry.
+    Returns the RESP Bulk String of the added ID, or a RESP Error bytes on failure.
     """
     with DATA_LOCK:
+        last_id_str = STREAMS[key][-1]["id"] if key in STREAMS and STREAMS[key] else None
+        
+        # Call the consolidated validation function
+        parsed_id_tuple, error_response = _verify_and_parse_new_id(id, last_id_str)
+        
+        if error_response is not None:
+            return error_response
+            
+        # ----------------------------------------------------
+        # Validation passed: proceed with adding the entry
+        # ----------------------------------------------------
+
+        # Ensure STREAMS and DATA_STORE are initialized (idempotent if already done)
         if key not in STREAMS:
             STREAMS[key] = []
         if key not in DATA_STORE:
+            # We don't need to link 'value': STREAMS[key] anymore, just setting type is enough
+            # as the main data is managed separately in STREAMS, and we use verify_stream_key
             DATA_STORE[key] = {
                 "type": "stream",
-                "value": STREAMS[key],
+                "value": None,
                 "expiry": None
             }
+        
         entry = {
             "id": id,
             "fields": fields
         }
         STREAMS[key].append(entry)
+        
         return id
