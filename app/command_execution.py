@@ -810,7 +810,18 @@ def handle_command(command: str, arguments: list, client: socket.socket) -> bool
                     if key in STREAMS and STREAMS[key]:
                         new_entry = STREAMS[key][-1]
                 
+                if new_entry:
+                    # Prepare the data structure for serialization (single entry for a single stream)
+                    stream_data_to_send = {key: [new_entry]}
+                    xread_block_response = _xread_serialize_response(stream_data_to_send)
 
+                    blocked_client_socket = blocked_client_condition.client_socket
+                    
+                    # Send the XREAD BLOCK response directly to the blocked client's socket.
+                    try:
+                        blocked_client_socket.sendall(xread_block_response)
+                    except Exception:
+                        pass # Ignore send errors
 
                     # Wake up the blocked thread by notifying its Condition.
                     with blocked_client_condition:
@@ -952,7 +963,7 @@ def handle_command(command: str, arguments: list, client: socket.socket) -> bool
 
             # 6. Post-block handling
             if notified:
-                # If True, the threrad was notified, now reread data and send response
+                # If True, XADD already sent the response.
 
                 keys_to_read = [key_to_block]
                 ids_to_read = [id_to_wait_for]
