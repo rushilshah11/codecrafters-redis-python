@@ -7,7 +7,7 @@ import time
 import argparse
 from xmlrpc import client
 from app.parser import parsed_resp_array
-from app.datastore import BLOCKING_CLIENTS, BLOCKING_CLIENTS_LOCK, BLOCKING_STREAMS, CHANNEL_SUBSCRIBERS, DATA_LOCK, DATA_STORE, SORTED_SETS, STREAMS, _xread_serialize_response, add_to_sorted_set, cleanup_blocked_client, get_sorted_set_range, get_sorted_set_rank, get_zscore, is_client_subscribed, load_rdb_to_datastore, lrange_rtn, num_client_subscriptions, prepend_to_list, remove_elements_from_list, remove_from_sorted_set, size_of_list, append_to_list, existing_list, get_data_entry, set_list, set_string, subscribe, unsubscribe, xadd, xrange, xread
+from app.datastore import BLOCKING_CLIENTS, BLOCKING_CLIENTS_LOCK, BLOCKING_STREAMS, BLOCKING_STREAMS_LOCK, CHANNEL_SUBSCRIBERS, DATA_LOCK, DATA_STORE, SORTED_SETS, STREAMS, add_to_sorted_set, cleanup_blocked_client, get_sorted_set_range, get_sorted_set_rank, get_zscore, is_client_subscribed, load_rdb_to_datastore, lrange_rtn, num_client_subscriptions, prepend_to_list, remove_elements_from_list, remove_from_sorted_set, size_of_list, append_to_list, existing_list, get_data_entry, set_list, set_string, subscribe, unsubscribe, xadd, xrange, xread
 
 # --------------------------------------------------------------------------------
 
@@ -30,6 +30,53 @@ if os.path.exists(RDB_PATH):
     DATA_STORE.update(load_rdb_to_datastore(RDB_PATH))
 else:
     print(f"RDB file not found at {RDB_PATH}, starting with empty DATA_STORE.")
+
+def _xread_serialize_response(stream_data: dict[str, list[dict]]) -> bytes:
+    """Serializes the result of xread into a RESP array response."""
+    if not stream_data:
+        return b"*-1\r\n" 
+
+    # Outer Array: Array of [key, [entry1, entry2, ...]]
+    # *N\r\n
+    outer_response_parts = []
+
+    for key, entries in stream_data.items():
+        # Array for [key, list of entries] -> *2\r\n
+        key_resp = b"$" + str(len(key.encode())).encode() + b"\r\n" + key.encode() + b"\r\n"
+        
+        # Array for list of entries -> *M\r\n
+        entries_array_parts = []
+        for entry in entries:
+            entry_id = entry["id"]
+            fields = entry["fields"]
+
+            # Array for [id, [field1, value1, field2, value2, ...]] -> *2\r\n
+            id_resp = b"$" + str(len(entry_id.encode())).encode() + b"\r\n" + entry_id.encode() + b"\r\n"
+
+            # Array for field/value pairs -> *2K\r\n
+            fields_array_parts = []
+            for field, value in fields.items():
+                field_bytes = field.encode()
+                value_bytes = value.encode()
+                fields_array_parts.append(b"$" + str(len(field_bytes)).encode() + b"\r\n" + field_bytes + b"\r\n")
+                fields_array_parts.append(b"$" + str(len(value_bytes)).encode() + b"\r\n" + value_bytes + b"\r\n")
+            
+            fields_array_resp = b"*" + str(len(fields) * 2).encode() + b"\r\n" + b"".join(fields_array_parts)
+
+            # Combine [id, fields_array]
+            entry_array_resp = b"*2\r\n" + id_resp + fields_array_resp
+            entries_array_parts.append(entry_array_resp)
+        
+        # Combine all entries into the inner array
+        entries_resp = b"*" + str(len(entries_array_parts)).encode() + b"\r\n" + b"".join(entries_array_parts)
+        
+        # Combine [key, entries_resp]
+        key_entries_resp = b"*2\r\n" + key_resp + entries_resp
+        outer_response_parts.append(key_entries_resp)
+
+    # Final response: Array of [key, entries] arrays
+    return b"*" + str(len(outer_response_parts)).encode() + b"\r\n" + b"".join(outer_response_parts)
+
 
 def handle_command(command: str, arguments: list, client: socket.socket) -> bool:
     """
@@ -745,6 +792,7 @@ def handle_command(command: str, arguments: list, client: socket.socket) -> bool
             response = new_entry_id_or_error
             client.sendall(response)
             print(f"Sent: XADD error response to {client_address}.")
+            return True
         else:
             # Success: new_entry_id_or_error is the raw ID bytes (e.g. b"1-0").
             # Format as a RESP Bulk String. Fixed the incorrect .encode() call on a bytes object.
@@ -752,9 +800,9 @@ def handle_command(command: str, arguments: list, client: socket.socket) -> bool
             blocked_client_condition = None
             new_entry = None
 
-            with BLOCKING_CLIENTS_LOCK:
-                if key in BLOCKING_CLIENTS and BLOCKING_CLIENTS[key]:
-                    blocked_client_condition = BLOCKING_CLIENTS[key].pop(0)
+            with BLOCKING_STREAMS_LOCK:
+                if key in BLOCKING_STREAMS and BLOCKING_STREAMS[key]:
+                    blocked_client_condition = BLOCKING_STREAMS[key].pop(0)
 
             if blocked_client_condition:
             # Get the single new entry that was just added (it's the last one)
@@ -900,7 +948,7 @@ def handle_command(command: str, arguments: list, client: socket.socket) -> bool
             client_condition.client_socket = client
             client_condition.key = key_to_block 
 
-            with BLOCKING_CLIENTS_LOCK:
+            with BLOCKING_STREAMS_LOCK:
                 BLOCKING_STREAMS.setdefault(key_to_block, []).append(client_condition)
 
             # Wait for notification or timeout
@@ -917,7 +965,7 @@ def handle_command(command: str, arguments: list, client: socket.socket) -> bool
                 return True 
             else:
                 # Timeout occurred. Clean up the blocking registration.
-                with BLOCKING_CLIENTS_LOCK:
+                with BLOCKING_STREAMS_LOCK:
                     if client_condition in BLOCKING_STREAMS.get(key_to_block, []):
                         BLOCKING_STREAMS[key_to_block].remove(client_condition)
                         if not BLOCKING_STREAMS[key_to_block]:
