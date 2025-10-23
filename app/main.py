@@ -18,22 +18,49 @@ def main():
     master_port = None
     
     # Simple argument parsing loop
-    i=0
+    i = 0
     while i < len(args):
-        if args[i] == "--port":
+        arg = args[i]
+        
+        if arg == "--port":
+            # Check for value presence and validity
+            if i + 1 >= len(args):
+                print("Server Error: Missing port number after --port.")
+                return
             try:
-                # Use the value after --port
+                port = int(args[i + 1])
+                i += 2 # Consume --port and port value
+            except ValueError:
+                print("Server Error: Port value is not an integer.")
+                return
+        
+        elif arg == "--replicaof":
+            # Check for host and port presence
+            if i + 2 >= len(args):
+                print("Server Error: Missing master host or port after --replicaof.")
+                return
+            try:
                 master_host = args[i + 1]
+                # The port is expected to be a string that can be cast to int
                 master_port = int(args[i + 2])
                 is_replica = True
-                i += 3
-            except (IndexError, ValueError):
-                print("Server Error: Invalid or missing port number after --port.")
+                i += 3 # Consume --replicaof, master_host, master_port
+            except ValueError:
+                print("Server Error: Master port value is not an integer.")
                 return
-        # Add a placeholder for other args to be passed to command_execution
-        elif args[i] == "--dir" or args[i] == "--dbfilename":
+            
+        elif arg == "--dir" or arg == "--dbfilename":
+            # Consuming other flags that are handled by command_execution's module-level init
+            if i + 1 >= len(args):
+                print(f"Server Error: Missing value for {arg}.")
+                return
             i += 2
+            
         else:
+            # Skip any unrecognized single argument or a value from a previous argument
+            # This handles the complex case where arguments might be interleaved/unrecognized.
+            # However, for the given set of flags, all arguments should be consumed by the above logic.
+            # If we hit this, it's likely an error, but we'll increment by 1 to proceed defensively.
             i += 1
 
     if is_replica:
