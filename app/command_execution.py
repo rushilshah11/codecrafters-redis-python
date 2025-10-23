@@ -741,7 +741,7 @@ def handle_command(command: str, arguments: list, client: socket.socket) -> bool
         print("PRINT calling xadd")
         new_entry_id = xadd(key, entry_id, fields)
 
-        response = b"$" + str(len(new_entry_id.encode())).encode() + b"\r\n" + new_entry_id.encode() + b"\r\n"
+        response = b"$" + str(len(new_entry_id)).encode() + b"\r\n" + new_entry_id + b"\r\n"
         client.sendall(response)
         print(f"Sent: XADD response for stream '{key}' to {client_address}. New entry ID: {new_entry_id}")
 
