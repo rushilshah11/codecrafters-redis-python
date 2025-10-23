@@ -981,8 +981,6 @@ def handle_command(command: str, arguments: list, client: socket.socket) -> bool
         client.sendall(response)
         return True
 
-
-
     elif command == "QUIT":
         response = b"+OK\r\n"
         client.sendall(response)
