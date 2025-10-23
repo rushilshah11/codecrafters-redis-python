@@ -7,7 +7,7 @@ import time
 import argparse
 from xmlrpc import client
 from app.parser import parsed_resp_array
-from app.datastore import BLOCKING_CLIENTS, BLOCKING_CLIENTS_LOCK, CHANNEL_SUBSCRIBERS, DATA_LOCK, DATA_STORE, SORTED_SETS, add_to_sorted_set, cleanup_blocked_client, get_sorted_set_range, get_sorted_set_rank, get_zscore, is_client_subscribed, load_rdb_to_datastore, lrange_rtn, num_client_subscriptions, prepend_to_list, remove_elements_from_list, remove_from_sorted_set, size_of_list, append_to_list, existing_list, get_data_entry, set_list, set_string, subscribe, unsubscribe, xadd
+from app.datastore import BLOCKING_CLIENTS, BLOCKING_CLIENTS_LOCK, CHANNEL_SUBSCRIBERS, DATA_LOCK, DATA_STORE, SORTED_SETS, add_to_sorted_set, cleanup_blocked_client, get_sorted_set_range, get_sorted_set_rank, get_zscore, is_client_subscribed, load_rdb_to_datastore, lrange_rtn, num_client_subscriptions, prepend_to_list, remove_elements_from_list, remove_from_sorted_set, size_of_list, append_to_list, existing_list, get_data_entry, set_list, set_string, subscribe, unsubscribe, xadd, xrange
 
 # --------------------------------------------------------------------------------
 
@@ -755,6 +755,47 @@ def handle_command(command: str, arguments: list, client: socket.socket) -> bool
             client.sendall(response)
             print(f"Sent: XADD response for stream '{key}' to {client_address}. New entry ID: {raw_id_bytes.decode()}")
 
+    elif command == "XRANGE":
+        if len(arguments) < 3:
+            response = b"-ERR wrong number of arguments for 'XRANGE' command\r\n"
+            client.sendall(response)
+            print(f"Sent: XRANGE argument error to {client_address}.")
+            return True
+        
+        key = arguments[0]
+        start_id = arguments[1]
+        end_id = arguments[2]
+
+        entries = xrange(key, start_id, end_id)
+
+        response_parts = []
+        for entry in entries:
+            entry_id = entry["id"]
+            fields = entry["fields"]
+
+            # Construct RESP Array for each entry: [entry_id, [field1, value1, field2, value2, ...]]
+            entry_parts = []
+            entry_id_bytes = entry_id.encode()
+            entry_parts.append(b"$" + str(len(entry_id_bytes)).encode() + b"\r\n" + entry_id_bytes + b"\r\n")
+
+            # Now construct the inner array of fields and values
+            field_value_parts = []
+            for field, value in fields.items():
+                field_bytes = field.encode()
+                value_bytes = value.encode()
+                field_value_parts.append(b"$" + str(len(field_bytes)).encode() + b"\r\n" + field_bytes + b"\r\n")
+                field_value_parts.append(b"$" + str(len(value_bytes)).encode() + b"\r\n" + value_bytes + b"\r\n")
+
+            # Combine field/value parts into an array
+            field_value_array = b"*" + str(len(field_value_parts)).encode() + b"\r\n" + b"".join(field_value_parts)
+            entry_parts.append(field_value_array)
+
+            # Combine entry parts into an array
+            entry_array = b"*" + str(len(entry_parts)).encode() + b"\r\n" + b"".join(entry_parts)
+            response_parts.append(entry_array)
+        response = b"*" + str(len(response_parts)).encode() + b"\r\n" + b"".join(response_parts)
+        client.sendall(response)
+        print(f"Sent: XRANGE response for stream '{key}' to {client_address}.")
 
     elif command == "QUIT":
         response = b"+OK\r\n"

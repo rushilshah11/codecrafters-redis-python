@@ -153,8 +153,6 @@ def cleanup_blocked_client(client):
             if not BLOCKING_CLIENTS[key]:
                 del BLOCKING_CLIENTS[key]
 
-# Helper to read a string (size-encoded)
-# datastore.py (modified read_string)
 def read_string(f):
     length_or_encoding_byte = read_length(f)
     
@@ -171,7 +169,6 @@ def read_string(f):
     except UnicodeDecodeError:
         return data # Return raw bytes if not valid UTF-8
 
-# Helper to read a size-encoded length
 def read_length(f):
     first_byte = f.read(1)[0]
     prefix = first_byte >> 6  # first 2 bits
@@ -190,14 +187,12 @@ def read_length(f):
         # special string encoding (C0–C3)
         return first_byte
 
-# Helper to read a value depending on its type
 def read_value(f, value_type):
     if value_type == b'\x00':  # string
         return read_string(f)
     # other types like lists/hashes could be added later
     return None
 
-# Helper to read expiry timestamps
 def read_expiry(f, type_byte):
     if type_byte == b'\xFC':  # ms
         return int.from_bytes(f.read(8), "little")
@@ -468,8 +463,6 @@ def remove_from_sorted_set(key: str, member: str) -> int:
                 del DATA_STORE[key]
         return 1
 
-# In app/datastore.py, replace the existing definition of _verify_and_parse_new_id
-
 def _verify_and_parse_new_id(new_id_str: str, last_id_str: str | None) -> tuple[str | None, bytes | None]:
     """
     Parses and validates the new ID against the last ID in the stream, 
@@ -553,7 +546,6 @@ def _verify_and_parse_new_id(new_id_str: str, last_id_str: str | None) -> tuple[
     # Validation succeeded for explicit ID
     return new_id_str, None
 
-
 def xadd(key: str, id: str, fields: dict[str, str]) -> bytes:
     """
     Adds an entry to a stream at the given key with the specified ID and fields.
@@ -593,3 +585,53 @@ def xadd(key: str, id: str, fields: dict[str, str]) -> bytes:
         
         # Success: Return the ID string for command execution to format
         return new_entry_id.encode()
+
+def xrange(key: str, start_id: str, end_id: str) -> list[dict]:
+    """
+    Returns a list of stream entries in the range [start_id, end_id] for the given key.
+    Each entry is a dictionary with 'id' and 'fields'.
+    If the key does not exist, returns an empty list.
+    """
+    with DATA_LOCK:
+        if key not in STREAMS:
+            return []
+        
+        entries = STREAMS[key]
+        result = []
+
+        for entry in entries:
+            entry_id = entry["id"]
+            if (start_id == "-" or compare_stream_ids(entry_id, start_id) >= 0) and \
+               (end_id == "+" or compare_stream_ids(entry_id, end_id) <= 0):
+                result.append(entry)
+
+        return result
+
+def compare_stream_ids(id1: str, id2: str) -> int:
+    """
+    Compares two stream IDs.
+    Returns:
+        -1 if id1 < id2
+         0 if id1 == id2
+         1 if id1 > id2
+    """
+    ms1, seq1 = map(int, id1.split('-'))
+    ms2, seq2 = map(int, id2.split('-'))
+
+    if ms1 < ms2:
+        return -1
+    elif ms1 > ms2:
+        return 1
+    else:
+        if seq1 < seq2:
+            return -1
+        elif seq1 > seq2:
+            return 1
+        else:
+            return 0
+
+
+
+
+
+
