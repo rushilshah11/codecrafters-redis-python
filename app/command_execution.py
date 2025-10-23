@@ -7,7 +7,7 @@ import time
 import argparse
 from xmlrpc import client
 from app.parser import parsed_resp_array
-from app.datastore import BLOCKING_CLIENTS, BLOCKING_CLIENTS_LOCK, BLOCKING_STREAMS, BLOCKING_STREAMS_LOCK, CHANNEL_SUBSCRIBERS, DATA_LOCK, DATA_STORE, SORTED_SETS, STREAMS, add_to_sorted_set, cleanup_blocked_client, get_sorted_set_range, get_sorted_set_rank, get_stream_max_id, get_zscore, increment_key_value, is_client_in_multi, is_client_subscribed, load_rdb_to_datastore, lrange_rtn, num_client_subscriptions, prepend_to_list, remove_elements_from_list, remove_from_sorted_set, set_client_in_multi, size_of_list, append_to_list, existing_list, get_data_entry, set_list, set_string, subscribe, unsubscribe, xadd, xrange, xread
+from app.datastore import BLOCKING_CLIENTS, BLOCKING_CLIENTS_LOCK, BLOCKING_STREAMS, BLOCKING_STREAMS_LOCK, CHANNEL_SUBSCRIBERS, DATA_LOCK, DATA_STORE, SORTED_SETS, STREAMS, add_to_sorted_set, cleanup_blocked_client, get_client_queued_commands, get_sorted_set_range, get_sorted_set_rank, get_stream_max_id, get_zscore, increment_key_value, is_client_in_multi, is_client_subscribed, load_rdb_to_datastore, lrange_rtn, num_client_subscriptions, prepend_to_list, remove_elements_from_list, remove_from_sorted_set, set_client_in_multi, size_of_list, append_to_list, existing_list, get_data_entry, set_list, set_string, subscribe, unsubscribe, xadd, xrange, xread
 
 # --------------------------------------------------------------------------------
 
@@ -1027,10 +1027,19 @@ def handle_command(command: str, arguments: list, client: socket.socket) -> bool
         client.sendall(response)
         print(f"Sent: OK to {client_address} for MULTI command.")
 
-        multi_flag = get_multi_flag()
-
     elif command == "EXEC":
         if is_client_in_multi(client):
+
+            queued_commands = get_client_queued_commands(client)
+            set_client_in_multi(client, False)
+
+            if not queued_commands:
+                # The required response for an empty transaction is an empty RESP Array.
+                response = b"*0\r\n"
+                client.sendall(response)
+                print(f"Sent: Empty array response to {client_address} for EXEC command.")
+                return True
+            
             response = b"+OK\r\n"
             client.sendall(response)
             print(f"Sent: OK to {client_address} for EXEC command.")

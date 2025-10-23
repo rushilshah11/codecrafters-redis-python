@@ -755,5 +755,18 @@ def set_client_in_multi(client, state: bool):
             CLIENT_STATE[client] = {}
         CLIENT_STATE[client]["is_in_multi"] = state
 
+        # Initialize or clear the command queue when setting the state
+        if state:
+            # Start of transaction: initialize empty queue
+            CLIENT_STATE[client]["queue"] = []
+        else:
+            # End of transaction (EXEC/DISCARD): clear the queue
+            CLIENT_STATE[client]["queue"] = []
 
+def get_client_queued_commands(client) -> list:
+    """
+    Returns the list of commands queued for the client.
+    """
+    with BLOCKING_CLIENTS_LOCK:
+        return CLIENT_STATE.get(client, {}).get("queue", [])
 
