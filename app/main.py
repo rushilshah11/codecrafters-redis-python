@@ -4,6 +4,7 @@ import sys
 # Note: For a real package, you would import with '.command_executor', 
 # but for a flat directory, the import might need adjustment.
 from app.command_execution import handle_connection
+import app.command_execution as ce
 
 
 def main():
@@ -11,20 +12,33 @@ def main():
     # --- ADDED: Argument Parsing for Port ---
     port = 6379 # Default Redis port
     args = sys.argv[1:]
+
+    is_replica = False
+    master_host = None
+    master_port = None
     
     # Simple argument parsing loop
     for i in range(0, len(args), 2):
         if args[i] == "--port":
             try:
                 # Use the value after --port
-                port = int(args[i + 1])
+                master_host = args[i + 1]
+                master_port = int(args[i + 2])
+                is_replica = True
+                i += 3
             except (IndexError, ValueError):
                 print("Server Error: Invalid or missing port number after --port.")
                 return
         # Add a placeholder for other args to be passed to command_execution
         elif args[i] == "--dir" or args[i] == "--dbfilename":
-            pass # These are now handled in command_execution.py's import scope
+            i += 2
+        else:
+            i += 1
 
+    if is_replica:
+        ce.SERVER_ROLE = "slave"
+        ce.MASTER_HOST = master_host
+        ce.MASTER_PORT = master_port
     # ----------------------------------------
 
     try:

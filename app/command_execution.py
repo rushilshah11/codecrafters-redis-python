@@ -15,6 +15,10 @@ from app.datastore import BLOCKING_CLIENTS, BLOCKING_CLIENTS_LOCK, BLOCKING_STRE
 DIR = "."
 DB_FILENAME = "dump.rdb"
 
+SERVER_ROLE = "master" # Default role is master
+MASTER_HOST = None
+MASTER_PORT = None
+
 # Parse args like --dir /path --dbfilename file.rdb
 args = sys.argv[1:]
 for i in range(0, len(args), 2):
@@ -1071,12 +1075,8 @@ def execute_single_command(command: str, arguments: list, client: socket.socket)
 
         # Only support 'replication' section for this stage
         if section == "replication":
-            # The required response string is "# Replication\r\nrole:master\r\n"
-            # The test only asserts on 'role:master', so the simplest valid response is:
-            info_content = "role:master\r\n"
-            
-            # Optionally, include the section header (not strictly required by the test)
-            info_content = "# Replication\r\n" + info_content
+            # Use the global SERVER_ROLE
+            info_content = f"role:{SERVER_ROLE}\r\n"
             
             # Encode the string as a RESP Bulk String
             info_bytes = info_content.encode()
