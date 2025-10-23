@@ -77,8 +77,7 @@ def _xread_serialize_response(stream_data: dict[str, list[dict]]) -> bytes:
     # Final response: Array of [key, entries] arrays
     return b"*" + str(len(outer_response_parts)).encode() + b"\r\n" + b"".join(outer_response_parts)
 
-
-def handle_command(command: str, arguments: list, client: socket.socket) -> bool:
+def execute_single_command(command: str, arguments: list, client: socket.socket) -> bytes | bool:
     """
     Executes a single command and sends the response.
     Returns True if the command was processed successfully, False otherwise (e.g., unknown command).
@@ -1052,15 +1051,39 @@ def handle_command(command: str, arguments: list, client: socket.socket) -> bool
                 print(f"Sent: Empty array response to {client_address} for EXEC command.")
                 return True
             
-            response = b"+OK\r\n"
-            client.sendall(response)
-            print(f"Sent: OK to {client_address} for EXEC command.")
+            # 4. Execute all queued commands and collect responses
+            response_parts = []
+            for cmd, args in queued_commands:
+                # Recursively call execute_single_command for each queued command
+                # The execution should not cause nested queuing, as the multi flag is now False
+                # and the recursive call won't re-trigger the main handle_command's checks.
+                try:
+                    # We pass the client socket for execution (e.g., SET/INCR needs it)
+                    cmd_response = execute_single_command(cmd, args, client)
+                    
+                    # EXEC only returns the actual response, never a connection close signal
+                    if cmd == "QUIT":
+                        cmd_response = b"+OK\r\n" # We don't actually close the connection yet
+                    
+                    # Check for blocking/transaction control commands that might return False/True signals
+                    if isinstance(cmd_response, bool):
+                        # This should not happen if the refactoring is correct, but defensively use a generic error
+                        cmd_response = b"-ERR Internal execution error\r\n" 
+
+                except Exception:
+                    # This catches errors during the execution of a queued command (e.g., wrong type)
+                    cmd_response = b"-ERR EXEC-failed during command execution\r\n" 
+                
+                response_parts.append(cmd_response)
+
+            # 5. Assemble the final RESP Array
+            final_response = b"*" + str(len(response_parts)).encode() + b"\r\n" + b"".join(response_parts)
+            
+            return final_response
         else:
             response = b"-ERR EXEC without MULTI\r\n"
             client.sendall(response)
             print(f"Sent: Error to {client_address} for EXEC command.")
-
-
 
     elif command == "QUIT":
         response = b"+OK\r\n"
@@ -1068,6 +1091,28 @@ def handle_command(command: str, arguments: list, client: socket.socket) -> bool
         print(f"Sent: OK to {client_address} for QUIT command. Closing connection.")
         cleanup_blocked_client(client)
         return False  # Signal to close the connection
+
+    return b"-ERR unknown command '" + command.encode() + b"'\r\n"
+
+def handle_command(command: str, arguments: list, client: socket.socket) -> bool:
+    response_or_signal = execute_single_command(command, arguments, client)
+
+    # QUIT is the only command that should return False to signal connection close
+    if command == "QUIT":
+        # We need to send the response before closing
+        if response_or_signal is not False:
+             client.sendall(response_or_signal)
+             print(f"Sent: OK to {client_address} for QUIT command. Closing connection.")
+        cleanup_blocked_client(client)
+        return False  # Signal to close the connection
+    
+    # Otherwise, send the response
+    if response_or_signal is not False: # Ensure it's not the signal from QUIT (which we handled above)
+        client.sendall(response_or_signal)
+        print(f"Sent: Response for command '{command}' to {client_address}.")
+        return True
+        
+    return True # Should only be hit if command was executed normally
     
 def handle_connection(client: socket.socket, client_address):
     """
