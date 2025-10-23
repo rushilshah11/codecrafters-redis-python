@@ -1180,11 +1180,11 @@ def handle_command(command: str, arguments: list, client: socket.socket) -> bool
         print(f"Execution signal: Command '{command}' successfully processed (response sent by another thread or not required).")
         return True
     
-    # Otherwise, send the response
-    if response_or_signal is not False: # Ensure it's not the signal from QUIT (which we handled above)
-        client.sendall(response_or_signal)
-        print(f"Sent: Response for command '{command}' to {client_address}.")
-        return True
+    # # Otherwise, send the response
+    # if response_or_signal is not False: # Ensure it's not the signal from QUIT (which we handled above)
+    #     client.sendall(response_or_signal)
+    #     print(f"Sent: Response for command '{command}' to {client_address}.")
+    #     return True
         
     return True # Should only be hit if command was executed normally
     
