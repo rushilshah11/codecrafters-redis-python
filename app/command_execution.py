@@ -739,11 +739,21 @@ def handle_command(command: str, arguments: list, client: socket.socket) -> bool
             fields[arguments[i]] = arguments[i + 1]
 
         print("PRINT calling xadd")
-        new_entry_id = xadd(key, entry_id, fields)
+        new_entry_id_or_error = xadd(key, entry_id, fields)
 
-        response = b"$" + str(len(new_entry_id)).encode() + b"\r\n" + new_entry_id + b"\r\n"
-        client.sendall(response)
-        print(f"Sent: XADD response for stream '{key}' to {client_address}. New entry ID: {new_entry_id}")
+        i# Check if xadd returned an error (RESP errors start with '-')
+        if new_entry_id_or_error.startswith(b'-'):
+            response = new_entry_id_or_error
+            client.sendall(response)
+            print(f"Sent: XADD error response to {client_address}.")
+        else:
+            # Success: new_entry_id_or_error is the raw ID bytes (e.g. b"1-0").
+            # Format as a RESP Bulk String. Fixed the incorrect .encode() call on a bytes object.
+            raw_id_bytes = new_entry_id_or_error
+            length_bytes = str(len(raw_id_bytes)).encode()
+            response = b"$" + length_bytes + b"\r\n" + raw_id_bytes + b"\r\n"
+            client.sendall(response)
+            print(f"Sent: XADD response for stream '{key}' to {client_address}. New entry ID: {raw_id_bytes.decode()}")
 
 
     elif command == "QUIT":
