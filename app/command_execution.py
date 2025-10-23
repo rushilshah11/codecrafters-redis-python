@@ -725,8 +725,8 @@ def handle_command(command: str, arguments: list, client: socket.socket) -> bool
         print(f"Sent: TYPE response for key '{key}' to {client_address}. Type: {type_str}")
 
     elif command == "XADD":
-        # XADD requires at least: key, id, field, value (4 arguments, length must be odd >= 3)
-        if len(arguments) < 3 or (len(arguments) % 2) != 1:
+        # XADD requires at least: key, id, field, value (4 arguments), and even number of field/value pairs
+        if len(arguments) < 4 or (len(arguments) - 2) % 2 != 0:
             response = b"-ERR wrong number of arguments for 'XADD' command\r\n"
             client.sendall(response)
             return True
