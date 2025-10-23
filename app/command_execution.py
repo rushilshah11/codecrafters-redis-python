@@ -947,7 +947,7 @@ def execute_single_command(command: str, arguments: list, client: socket.socket)
             # 6. Post-block handling
             if notified:
                 # If True, XADD already sent the response.
-                return True 
+                return None 
             else:
                 # Timeout occurred. Clean up the blocking registration.
                 with BLOCKING_STREAMS_LOCK:
@@ -1055,8 +1055,8 @@ def execute_single_command(command: str, arguments: list, client: socket.socket)
     return b"-ERR unknown command '" + command.encode() + b"'\r\n"
 
 def handle_command(command: str, arguments: list, client: socket.socket) -> bool:
+    
     client_address = client.getpeername()
-
 
     if is_client_in_multi(client):
         # Commands that must be executed immediately, even inside MULTI: MULTI, EXEC, DISCARD (and WATCH/UNWATCH, but not implemented)
@@ -1072,14 +1072,21 @@ def handle_command(command: str, arguments: list, client: socket.socket) -> bool
         
     response_or_signal = execute_single_command(command, arguments, client)
 
-    # QUIT is the only command that should return False to signal connection close
-    if command == "QUIT":
-        # We need to send the response before closing
-        if response_or_signal is not False:
-             client.sendall(response_or_signal)
-             print(f"Sent: OK to {client_address} for QUIT command. Closing connection.")
-        cleanup_blocked_client(client)
-        return False  # Signal to close the connection
+    # 4. SEND THE RESPONSE
+    # Check if the response is a bytes object (and not None, False, or True)
+    if isinstance(response_or_signal, bytes):
+        client.sendall(response_or_signal)
+        print(f"Sent: Response for command '{command}' to {client_address}. Type: {response_or_signal[:3]!r}")
+        return True
+    
+    # If response_or_signal is None (e.g., successful XREAD block), we return True (success) 
+    # without sending anything, as the other thread already sent the response.
+    if response_or_signal is None:
+        print(f"Execution signal: Command '{command}' successfully processed (response sent by another thread or not required).")
+        return True
+    
+    # All other cases (which should be only False for QUIT, handled above)
+    return True
     
     # Otherwise, send the response
     if response_or_signal is not False: # Ensure it's not the signal from QUIT (which we handled above)
