@@ -724,15 +724,45 @@ def handle_command(command: str, arguments: list, client: socket.socket) -> bool
         client.sendall(response)
         print(f"Sent: TYPE response for key '{key}' to {client_address}. Type: {type_str}")
     
-    elif command == "XADD":
-        stream_key = arguments[0] if len(arguments) > 0 else ""
-        entry_id = arguments[1] if len(arguments) > 1 else ""
-        field_values = arguments[2:] if len(arguments) > 2 else []
+    # app/command_execution.py (inside handle_command function)
 
-        new_entry_id = xadd(stream_key, entry_id, field_values)
-        response = b"$" + str(len(new_entry_id.encode())).encode() + b"\r\n" + new_entry_id.encode() + b"\r\n"
+    elif command == "XADD":
+        # XADD requires at least: key, id, field, value (4 arguments, length must be odd >= 3)
+        if len(arguments) < 3 or (len(arguments) % 2) != 1:
+            response = b"-ERR wrong number of arguments for 'XADD' command\r\n"
+            client.sendall(response)
+            return True
+        
+        key = arguments[0]
+        entry_id = arguments[1]
+        
+        # Arguments 2 onwards are field/value pairs, which must be parsed into a dict
+        fields = {}
+        for i in range(2, len(arguments), 2):
+            fields[arguments[i]] = arguments[i + 1]
+        
+        # Call xadd. It returns either the ID string (success) or error bytes (failure).
+        result = xadd(key, entry_id, fields)
+        
+        if isinstance(result, bytes):
+            # If result is bytes, it's a RESP error message, send it directly.
+            response = result
+        else:
+            # If result is a string, it's the entry ID, format it as a RESP Bulk String.
+            new_entry_id = result # result is the ID string
+            response = b"$" + str(len(new_entry_id.encode())).encode() + b"\r\n" + new_entry_id.encode() + b"\r\n"
+        
         client.sendall(response)
-        print(f"Sent: XADD response for stream '{stream_key}' to {client_address}. New entry ID: {new_entry_id}")
+        print(f"Sent: XADD response for key '{key}' to {client_address}.")
+        return True
+
+
+
+
+
+
+
+
     elif command == "QUIT":
         response = b"+OK\r\n"
         client.sendall(response)
