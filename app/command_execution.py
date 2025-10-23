@@ -701,6 +701,28 @@ def handle_command(command: str, arguments: list, client: socket.socket) -> bool
         client.sendall(response)
         print(f"Sent: ZREM response for sorted set '{set_key}' to {client_address}. Removed count: {removed_count}")
     
+    elif command == "TYPE":
+        if len(arguments) < 1:
+            response = b"-ERR wrong number of arguments for 'TYPE' command\r\n"
+            client.sendall(response)
+            print(f"Sent: TYPE argument error to {client_address}.")
+            return True
+        
+        key = arguments[0]
+
+        data_entry = get_data_entry(key)
+
+        if data_entry is None:
+            type_str = "none"
+        else:
+            type_str = data_entry.get("type", "none")
+
+        type_bytes = type_str.encode()
+        length_bytes = str(len(type_bytes)).encode()
+        response = b"$" + length_bytes + b"\r\n" + type_bytes + b"\r\n"
+
+        client.sendall(response)
+        print(f"Sent: TYPE response for key '{key}' to {client_address}. Type: {type_str}")
     elif command == "QUIT":
         response = b"+OK\r\n"
         client.sendall(response)
