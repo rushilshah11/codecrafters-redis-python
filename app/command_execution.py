@@ -19,6 +19,8 @@ SERVER_ROLE = "master" # Default role is master
 MASTER_HOST = None
 MASTER_PORT = None
 
+MASTER_REPLID = "8371b4fb1155b71f4a04d3e1bc3e18c4a990aeeb" # Hardcoded 40-char ID
+MASTER_REPL_OFFSET = 0 # Starts at 0
 # Parse args like --dir /path --dbfilename file.rdb
 args = sys.argv[1:]
 for i in range(0, len(args), 2):
@@ -1077,6 +1079,12 @@ def execute_single_command(command: str, arguments: list, client: socket.socket)
         if section == "replication":
             # Use the global SERVER_ROLE
             info_content = f"role:{SERVER_ROLE}\r\n"
+
+            # Add master_replid and master_repl_offset only if we are the master
+            if SERVER_ROLE == "master":
+                # Use the global hardcoded values
+                info_content += f"master_replid:{MASTER_REPLID}\r\n"
+                info_content += f"master_repl_offset:{MASTER_REPL_OFFSET}\r\n"
             
             # Encode the string as a RESP Bulk String
             info_bytes = info_content.encode()
