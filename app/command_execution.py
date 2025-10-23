@@ -121,6 +121,21 @@ def execute_single_command(command: str, arguments: list, client: socket.socket)
         response = b"+OK\r\n"
         return response
     
+    elif command == "PSYNC": # <--- ADDED PSYNC COMMAND
+        # The master receives PSYNC ? -1 from the replica.
+        # It must respond with +FULLRESYNC <REPL_ID> <OFFSET>\r\n encoded as a Simple String.
+        
+        # 1. Retrieve the master's replication ID and offset
+        repl_id = MASTER_REPLID
+        offset = MASTER_REPL_OFFSET # Which is currently 0
+
+        # 2. Construct the response string
+        response_str = f"+FULLRESYNC {repl_id} {offset}\r\n"
+        
+        # 3. Encode the response as bytes and return
+        response = response_str.encode()
+        return response
+    
     elif command == "ECHO":
         if not arguments:
             response = b"-ERR wrong number of arguments for 'echo' command\r\n"
