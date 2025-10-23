@@ -7,14 +7,34 @@ from app.command_execution import handle_connection
 import app.command_execution as ce
 
 PING_COMMAND_RESP = b"*1\r\n$4\r\nPING\r\n"
+REPLCONF_CAPA_PSYNC2 = b"*3\r\n$8\r\nREPLCONF\r\n$4\r\ncapa\r\n$6\r\npsync2\r\n"
 
-def connect_to_master():
+def read_simple_string_response(sock: socket.socket, expected: bytes):
+    """
+    Reads a response from the master and verifies it against the expected simple string.
+    """
+    response = sock.recv(1024) # Read a small buffer
+    if not response or not response.startswith(b"+"):
+        print(f"Replication Error: Master sent unexpected response: {response!r}")
+        return False
+    
+    # Simple check for "+OK\r\n"
+    if response.strip() == expected.strip():
+        print(f"Replication: Received expected response: {response!r}")
+        return True
+    
+    # If the response is larger than expected, or different
+    print(f"Replication Error: Received response {response!r} did not match expected {expected!r}")
+    return False
+
+def connect_to_master(listening_port: int):
     """
     Called when the server is a replica. It connects to the master and performs 
     the first handshake step (PING).
     """
     master_host = ce.MASTER_HOST
     master_port = ce.MASTER_PORT
+    master_socket = None
 
     if not master_host or not master_port:
         print("Replication Error: Master host or port not configured for replica.")
@@ -27,15 +47,40 @@ def connect_to_master():
         master_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         master_socket.connect((master_host, master_port))
         
-        print(f"Replication: Connected to master. Sending PING...")
-        
-        # --- Handshake Step 1: Send PING ---
+        # ----------------------------------------------------
+        # Handshake Step 1: PING
+        # ----------------------------------------------------
         master_socket.sendall(PING_COMMAND_RESP)
-        print(f"Replication: Sent PING: {PING_COMMAND_RESP!r}")
+        if not read_simple_string_response(master_socket, b"+PONG\r\n"): # PING expects +PONG
+            return
+        
+        # ----------------------------------------------------
+        # Handshake Step 2: REPLCONF listening-port <PORT>
+        # ----------------------------------------------------
+        port_str = str(listening_port)
+        # *3\r\n$8\r\nREPLCONF\r\n$14\r\nlistening-port\r\n$LEN\r\n<PORT>\r\n
+        replconf_listening_port = (
+            b"*3\r\n" +
+            b"$8\r\nREPLCONF\r\n" +
+            b"$14\r\nlistening-port\r\n" +
+            b"$" + str(len(port_str)).encode() + b"\r\n" +
+            port_str.encode() + b"\r\n"
+        )
 
-        # The replica must now wait for the master's response (PONG).
-        # We'll read the response in the next stage. For now, just send the PING.
-        # Store the socket for later use in subsequent stages
+        master_socket.sendall(replconf_listening_port)
+        if not read_simple_string_response(master_socket, b"+OK\r\n"): # REPLCONF expects +OK
+            return
+
+        # ----------------------------------------------------
+        # Handshake Step 3 (2nd REPLCONF): capa psync2
+        # ----------------------------------------------------
+        master_socket.sendall(REPLCONF_CAPA_PSYNC2)
+        if not read_simple_string_response(master_socket, b"+OK\r\n"): # REPLCONF expects +OK
+            return
+
+        print("Replication: Handshake steps 1 & 2 complete.")
+        
+        # Store the socket for later use
         ce.MASTER_SOCKET = master_socket
         
     except Exception as e:
@@ -108,7 +153,7 @@ def main():
         ce.MASTER_HOST = master_host
         ce.MASTER_PORT = master_port
 
-        connect_to_master()
+        connect_to_master(port)
     # ----------------------------------------
 
     try:

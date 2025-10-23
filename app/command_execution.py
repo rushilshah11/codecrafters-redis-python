@@ -21,6 +21,7 @@ MASTER_PORT = None
 
 MASTER_REPLID = "8371b4fb1155b71f4a04d3e1bc3e18c4a990aeeb" # Hardcoded 40-char ID
 MASTER_REPL_OFFSET = 0 # Starts at 0
+MASTER_SOCKET = None
 # Parse args like --dir /path --dbfilename file.rdb
 args = sys.argv[1:]
 for i in range(0, len(args), 2):
