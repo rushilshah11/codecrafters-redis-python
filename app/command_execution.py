@@ -159,7 +159,7 @@ def execute_single_command(command: str, arguments: list, client: socket.socket)
 
         # 3. Return the +FULLRESYNC response bytes. 
         #    The calling function (handle_command) will then send this to the client.
-        return fullresync_bytes
+        return fullresync_bytes.decode()
     
     elif command == "ECHO":
         if not arguments:
