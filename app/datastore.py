@@ -529,11 +529,13 @@ def xadd(key: str, id: str, fields: dict[str, str]) -> bytes:
         # 1. Type Check & Expiration Check 
         data_entry = get_data_entry(key)
         if data_entry is not None and data_entry.get("type") != "stream":
+            print("XADD Error: Key exists with wrong type.")
             return b"-WRONGTYPE Operation against a key holding the wrong kind of value\r\n"
         
         # 2. Get last ID (safely handle non-existent key after expiration check)
         last_id_str = STREAMS[key][-1]["id"] if key in STREAMS and STREAMS[key] else None
         
+        print("got last id:", last_id_str)
         # 3. Validation
         # The first element of the tuple is ignored here, only the error_response is used
         _, error_response = _verify_and_parse_new_id(id, last_id_str)
