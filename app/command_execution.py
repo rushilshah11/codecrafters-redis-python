@@ -24,7 +24,8 @@ MASTER_REPL_OFFSET = 0 # Starts at 0
 MASTER_SOCKET = None
 
 # Define the 59-byte empty RDB file content (hexadecimal)
-EMPTY_RDB_HEX=b"\x52\x45\x44\x49\x53\x30\x30\x31\x31\xfa\x09\x72\x65\x64\x69\x73\x2d\x76\x65\x72\x05\x37\x2e\x32\x2e\x34\xfa\x0a\x72\x65\x70\x6c\x2d\x69\x64\x00\xc0\xfa\x08\x70\x70\x6d\x73\x01\xfa\x09\x75\x73\x65\x63\x2d\x6d\x73\x00\xfb\x01\xfb\x00\xff\x0a"
+EMPTY_RDB_HEX="524544495330303131fa0972656469732d76657205372e322e30fa08637265617465646279c04e3c0000"
+empty_rdb_bytes = bytes.fromhex(EMPTY_RDB_HEX)
 RDB_FILE_SIZE = 59
 RDB_HEADER = f"${RDB_FILE_SIZE}\r\n".encode()
 
@@ -142,7 +143,7 @@ def execute_single_command(command: str, arguments: list, client: socket.socket)
         # 3. Construct the RDB file response: $<length_of_file>\r\n<binary_contents_of_file>
         # The RDB_HEADER is: b"$59\r\n"
         # The EMPTY_RDB_HEX is the 59 bytes of content.
-        rdb_response_bytes = RDB_HEADER + EMPTY_RDB_HEX
+        rdb_response_bytes = RDB_HEADER + empty_rdb_bytes
 
         # 4. Combine the responses: FULLRESYNC + RDB file
         # The single client.sendall() call in handle_command will send both.
@@ -1180,11 +1181,11 @@ def handle_command(command: str, arguments: list, client: socket.socket) -> bool
         print(f"Execution signal: Command '{command}' successfully processed (response sent by another thread or not required).")
         return True
     
-    # # Otherwise, send the response
-    # if response_or_signal is not False: # Ensure it's not the signal from QUIT (which we handled above)
-    #     client.sendall(response_or_signal)
-    #     print(f"Sent: Response for command '{command}' to {client_address}.")
-    #     return True
+    # Otherwise, send the response
+    if response_or_signal is not False: # Ensure it's not the signal from QUIT (which we handled above)
+        client.sendall(response_or_signal)
+        print(f"Sent: Response for command '{command}' to {client_address}.")
+        return True
         
     return True # Should only be hit if command was executed normally
     
