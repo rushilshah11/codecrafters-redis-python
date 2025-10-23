@@ -797,6 +797,12 @@ def handle_command(command: str, arguments: list, client: socket.socket) -> bool
         client.sendall(response)
         print(f"Sent: XRANGE response for stream '{key}' to {client_address}.")
 
+
+
+
+
+
+
     elif command == "QUIT":
         response = b"+OK\r\n"
         client.sendall(response)
