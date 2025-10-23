@@ -630,7 +630,31 @@ def compare_stream_ids(id1: str, id2: str) -> int:
         else:
             return 0
 
+def xread(keys: list[str], last_ids: list[str]) -> dict[str, list[dict]]:
+    """
+    Reads entries from multiple streams starting after the given last IDs.
+    Returns a dictionary mapping each key to a list of new entries.
+    If a key does not exist, it will not be included in the result.
+    """
+    with DATA_LOCK:
+        result = {}
 
+        for key, last_id in zip(keys, last_ids):
+            if key not in STREAMS:
+                continue
+            
+            entries = STREAMS[key]
+            new_entries = []
+
+            for entry in entries:
+                entry_id = entry["id"]
+                if compare_stream_ids(entry_id, last_id) > 0:
+                    new_entries.append(entry)
+
+            if new_entries:
+                result[key] = new_entries
+
+        return result
 
 
 

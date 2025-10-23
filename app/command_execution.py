@@ -797,8 +797,91 @@ def handle_command(command: str, arguments: list, client: socket.socket) -> bool
         client.sendall(response)
         print(f"Sent: XRANGE response for stream '{key}' to {client_address}.")
 
+    elif command == "XREAD":
+        # Format: XREAD STREAMS key1 key2 ... id1 id2 ...
+        # 1. Check basic arguments: must contain 'STREAMS' and at least one key/id pair (min 3 args)
+        if len(arguments) < 3 or arguments[0].upper() != "STREAMS":
+            response = b"-ERR wrong number of arguments or missing STREAMS keyword for 'XREAD' command\r\n"
+            client.sendall(response)
+            return True
 
+        # 2. Find the split point between keys and IDs
+        # The arguments array looks like: [STREAMS, key1, key2, ..., id1, id2, ...]
+        keys_start_index = 1
+        num_args_after_streams = len(arguments) - 1
+        
+        # The split point is exactly halfway through the remaining arguments,
+        # assuming an even number of arguments (which is required for a valid command).
+        if num_args_after_streams % 2 != 0:
+            response = b"-ERR unaligned key/id pairs for 'XREAD' command\r\n"
+            client.sendall(response)
+            return True
 
+        num_keys = num_args_after_streams // 2
+        keys = arguments[keys_start_index : keys_start_index + num_keys]
+        ids_start_index = keys_start_index + num_keys
+        ids = arguments[ids_start_index:]
+
+        # Sanity check (should be redundant if the split logic is correct, but safe to keep)
+        if len(keys) != len(ids):
+            response = b"-ERR unaligned key/id pairs for 'XREAD' command\r\n"
+            client.sendall(response)
+            return True
+
+        # 3. Call the data store function
+        stream_data = xread(keys, ids)
+        
+        # 4. Serialize the result (stream_data: dict[key, list[entry: dict]])
+        
+        if not stream_data:
+            response = b"*-1\r\n" # RESP Null Array if no new entries found
+            client.sendall(response)
+            return True
+
+        # Outer Array: Array of [key, [entry1, entry2, ...]]
+        # *N\r\n
+        outer_response_parts = []
+
+        for key, entries in stream_data.items():
+            # Array for [key, list of entries] -> *2\r\n
+            key_resp = b"$" + str(len(key.encode())).encode() + b"\r\n" + key.encode() + b"\r\n"
+            
+            # Array for list of entries -> *M\r\n
+            entries_array_parts = []
+            for entry in entries:
+                entry_id = entry["id"]
+                fields = entry["fields"]
+
+                # Array for [id, [field1, value1, field2, value2, ...]] -> *2\r\n
+                id_resp = b"$" + str(len(entry_id.encode())).encode() + b"\r\n" + entry_id.encode() + b"\r\n"
+
+                # Array for field/value pairs -> *2K\r\n
+                fields_array_parts = []
+                for field, value in fields.items():
+                    field_bytes = field.encode()
+                    value_bytes = value.encode()
+                    fields_array_parts.append(b"$" + str(len(field_bytes)).encode() + b"\r\n" + field_bytes + b"\r\n")
+                    fields_array_parts.append(b"$" + str(len(value_bytes)).encode() + b"\r\n" + value_bytes + b"\r\n")
+                
+                fields_array_resp = b"*" + str(len(fields) * 2).encode() + b"\r\n" + b"".join(fields_array_parts)
+
+                # Combine [id, fields_array]
+                entry_array_resp = b"*2\r\n" + id_resp + fields_array_resp
+                entries_array_parts.append(entry_array_resp)
+            
+            # Combine all entries into the inner array
+            entries_resp = b"*" + str(len(entries_array_parts)).encode() + b"\r\n" + b"".join(entries_array_parts)
+            
+            # Combine [key, entries_resp]
+            key_entries_resp = b"*2\r\n" + key_resp + entries_resp
+            outer_response_parts.append(key_entries_resp)
+
+        # Final response: Array of [key, entries] arrays
+        response = b"*" + str(len(outer_response_parts)).encode() + b"\r\n" + b"".join(outer_response_parts)
+        
+        client.sendall(response)
+        print(f"Sent: XREAD response to {client_address}.")
+        return True
 
 
 
