@@ -642,6 +642,12 @@ def xread(keys: list[str], last_ids: list[str]) -> dict[str, list[dict]]:
         result = {}
 
         for key, last_id in zip(keys, last_ids):
+
+            if last_id == "$":
+                resolved_id = get_stream_max_id(key)
+            else:
+                resolved_id = last_id
+
             if key not in STREAMS:
                 continue
             
@@ -650,7 +656,7 @@ def xread(keys: list[str], last_ids: list[str]) -> dict[str, list[dict]]:
 
             for entry in entries:
                 entry_id = entry["id"]
-                if compare_stream_ids(entry_id, last_id) > 0:
+                if compare_stream_ids(entry_id, resolved_id) > 0:
                     new_entries.append(entry)
 
             if new_entries:
@@ -658,3 +664,18 @@ def xread(keys: list[str], last_ids: list[str]) -> dict[str, list[dict]]:
 
         return result
 
+def get_stream_max_id(key: str) -> str:
+    """
+    Returns the ID of the last entry in the stream.
+    Used for '$' in XREAD to mean "read from the end".
+    Returns "0-0" if the stream is empty/non-existent, which is the conceptual ID 
+    just before the first valid entry (0-1) or any other entry.
+    """
+    with DATA_LOCK:
+        # Check if the stream key exists and has entries
+        if key in STREAMS and STREAMS[key]:
+            return STREAMS[key][-1]["id"]
+        
+        # If stream is empty, we return "0-0" so that the first valid entry (0-1, 1-0, etc.) 
+        # is correctly recognized as greater than the starting ID.
+        return "0-0"
