@@ -468,15 +468,54 @@ def remove_from_sorted_set(key: str, member: str) -> int:
                 del DATA_STORE[key]
         return 1
 
-def _verify_and_parse_new_id(new_id_str: str, last_id_str: str | None) -> tuple[tuple[int, int], bytes | None]:
-    """
-    Parses and validates the new ID against the last ID in the stream.
-    Returns: (parsed_new_id_tuple, error_bytes). 
-    """
-    # 1. Basic Format and Explicit ID check for this stage
-    if '*' in new_id_str:
-        return None, b"-ERR Only explicit stream IDs are supported in this stage\r\n"
+# In app/datastore.py, replace the existing definition of _verify_and_parse_new_id
 
+def _verify_and_parse_new_id(new_id_str: str, last_id_str: str | None) -> tuple[str | None, bytes | None]:
+    """
+    Parses and validates the new ID against the last ID in the stream, 
+    auto-generating the sequence number if 'ms-*' is present.
+    Returns: (final_valid_id_str, error_bytes). 
+    """
+    
+    # Determine the ID of the last entry
+    if last_id_str is None:
+        last_ms, last_seq = 0, 0  # Conceptual ID for empty stream
+    else:
+        try:
+            last_parts = last_id_str.split('-')
+            last_ms = int(last_parts[0])
+            last_seq = int(last_parts[1])
+        except ValueError:
+            return None, b"-ERR Internal error reading last stream ID\r\n"
+    
+    # 1. Handle Auto-generation of Sequence Number (ms-*)
+    if new_id_str.endswith('-*'):
+        try:
+            new_ms = int(new_id_str.split('-')[0])
+        except ValueError:
+            return None, b"-ERR Invalid stream ID format\r\n"
+
+        # Rule: millisecondsTime must be strictly greater than or equal to last
+        if new_ms < last_ms:
+            return None, b"-ERR The ID specified in XADD is equal or smaller than the target stream top item\r\n"
+        
+        # Determine the new sequence number
+        if new_ms > last_ms:
+            # New time part is greater: sequence number starts at 0, 
+            # except if the time part is 0, then it starts at 1.
+            new_seq = 1 if new_ms == 0 else 0
+        else: # new_ms == last_ms
+            # Same time part: sequence number is last_seq + 1
+            new_seq = last_seq + 1
+            
+        final_id_str = f"{new_ms}-{new_seq}"
+        return final_id_str, None
+        
+    # 2. Handle Auto-generation of Full ID (*) - Unsupported in this stage
+    if new_id_str == "*":
+        return None, b"-ERR Only explicit and milliseconds-time-part auto-generation IDs are supported in this stage\r\n"
+
+    # 3. Handle Explicit ID (ms-seq)
     try:
         new_parts = new_id_str.split('-')
         if len(new_parts) != 2:
@@ -484,29 +523,14 @@ def _verify_and_parse_new_id(new_id_str: str, last_id_str: str | None) -> tuple[
             
         new_ms = int(new_parts[0])
         new_seq = int(new_parts[1])
-        new_id_tuple = (new_ms, new_seq)
     except ValueError:
         return None, b"-ERR Invalid stream ID format\r\n"
 
-    # 2. Rule: 0-0 is always invalid (min valid ID is 0-1)
+    # Rule: 0-0 is always invalid (min valid ID is 0-1)
     if new_id_str == "0-0":
         return None, b"-ERR The ID specified in XADD must be greater than 0-0\r\n"
 
-    # Determine the ID of the last entry
-    if last_id_str is None:
-        last_id_tuple = (0, 0)  # Conceptual ID for empty stream
-    else:
-        try:
-            last_parts = last_id_str.split('-')
-            last_ms = int(last_parts[0])
-            last_seq = int(last_parts[1])
-            last_id_tuple = (last_ms, last_seq)
-        except ValueError:
-            return None, b"-ERR Internal error reading last stream ID\r\n"
-
-    # 3. Rule: ID must be strictly greater than the last ID
-    last_ms, last_seq = last_id_tuple
-
+    # Rule: ID must be strictly greater than the last ID
     # a) millisecondsTime must be strictly greater than or equal to last
     if new_ms < last_ms:
         return None, b"-ERR The ID specified in XADD is equal or smaller than the target stream top item\r\n"
@@ -516,8 +540,8 @@ def _verify_and_parse_new_id(new_id_str: str, last_id_str: str | None) -> tuple[
         if new_seq <= last_seq:
             return None, b"-ERR The ID specified in XADD is equal or smaller than the target stream top item\r\n"
 
-    # Validation succeeded
-    return new_id_tuple, None
+    # Validation succeeded for explicit ID
+    return new_id_str, None
 
 
 def xadd(key: str, id: str, fields: dict[str, str]) -> bytes:
@@ -534,11 +558,12 @@ def xadd(key: str, id: str, fields: dict[str, str]) -> bytes:
 
         # 3. Validation
         # The first element of the tuple is ignored here, only the error_response is used
-        _, error_response = _verify_and_parse_new_id(id, last_id_str)
+        final_id_str, error_response = _verify_and_parse_new_id(id, last_id_str)
         
         if error_response is not None:
             return error_response
             
+        new_entry_id = final_id_str
         # 4. Initialization (idempotent)
         if key not in STREAMS:
             STREAMS[key] = []
