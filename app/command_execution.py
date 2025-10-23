@@ -7,7 +7,7 @@ import time
 import argparse
 from xmlrpc import client
 from app.parser import parsed_resp_array
-from app.datastore import BLOCKING_CLIENTS, BLOCKING_CLIENTS_LOCK, CHANNEL_SUBSCRIBERS, DATA_LOCK, DATA_STORE, SORTED_SETS, add_to_sorted_set, cleanup_blocked_client, get_sorted_set_range, get_sorted_set_rank, get_zscore, is_client_subscribed, load_rdb_to_datastore, lrange_rtn, num_client_subscriptions, prepend_to_list, remove_elements_from_list, remove_from_sorted_set, size_of_list, append_to_list, existing_list, get_data_entry, set_list, set_string, subscribe, unsubscribe
+from app.datastore import BLOCKING_CLIENTS, BLOCKING_CLIENTS_LOCK, CHANNEL_SUBSCRIBERS, DATA_LOCK, DATA_STORE, SORTED_SETS, add_to_sorted_set, cleanup_blocked_client, get_sorted_set_range, get_sorted_set_rank, get_zscore, is_client_subscribed, load_rdb_to_datastore, lrange_rtn, num_client_subscriptions, prepend_to_list, remove_elements_from_list, remove_from_sorted_set, size_of_list, append_to_list, existing_list, get_data_entry, set_list, set_string, subscribe, unsubscribe, xadd
 
 # --------------------------------------------------------------------------------
 
@@ -723,6 +723,16 @@ def handle_command(command: str, arguments: list, client: socket.socket) -> bool
 
         client.sendall(response)
         print(f"Sent: TYPE response for key '{key}' to {client_address}. Type: {type_str}")
+    
+    elif command == "XADD":
+        stream_key = arguments[0] if len(arguments) > 0 else ""
+        entry_id = arguments[1] if len(arguments) > 1 else ""
+        field_values = arguments[2:] if len(arguments) > 2 else []
+
+        new_entry_id = xadd(stream_key, entry_id, field_values)
+        response = b"$" + str(len(new_entry_id.encode())).encode() + b"\r\n" + new_entry_id.encode() + b"\r\n"
+        client.sendall(response)
+        print(f"Sent: XADD response for stream '{stream_key}' to {client_address}. New entry ID: {new_entry_id}")
     elif command == "QUIT":
         response = b"+OK\r\n"
         client.sendall(response)

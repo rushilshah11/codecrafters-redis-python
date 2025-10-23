@@ -14,6 +14,8 @@ CLIENT_STATE = {}
 
 SORTED_SETS = {}
 
+STREAMS = {}
+
 # The central storage. Keys map to a dictionary containing value, type, and expiry metadata.
 # Example: {'mykey': {'type': 'string', 'value': 'myvalue', 'expiry': 1731671220000}}
 DATA_STORE = {}
@@ -311,7 +313,6 @@ def subscribe(client, channel):
             CLIENT_STATE[client] = {}
         CLIENT_STATE[client]["is_subscribed"] = True
 
-
 def num_client_subscriptions(client) -> int:
     """
     Returns the number of channels the given client is subscribed to.
@@ -362,6 +363,13 @@ def add_to_sorted_set(key: str, member: str, score_str: str) -> int:
         if key not in SORTED_SETS:
             # Create a new sorted set (dictionary of members to scores)
             SORTED_SETS[key] = {}
+        
+        if key not in DATA_STORE:
+            DATA_STORE[key] = {
+                "type": "sorted_set",
+                "value": SORTED_SETS[key],
+                "expiry": None
+            }
         
         # 2. Check if the member already exists
         is_new_member = member not in SORTED_SETS[key]
@@ -452,6 +460,31 @@ def remove_from_sorted_set(key: str, member: str) -> int:
     with DATA_LOCK:
         if key not in SORTED_SETS or member not in SORTED_SETS[key]:
             return 0
-
+        
         del SORTED_SETS[key][member]
+        if not sorted_sets[key]:
+            del SORTED_SETS[key]
+            if key in DATA_STORE:
+                del DATA_STORE[key]
         return 1
+
+def xadd(key: str, id: str, fields: dict[str, str]) -> str:
+    """
+    Adds an entry to a stream at the given key with the specified ID and fields.
+    Returns the ID of the added entry.
+    """
+    with DATA_LOCK:
+        if key not in STREAMS:
+            STREAMS[key] = []
+        if key not in DATA_STORE:
+            DATA_STORE[key] = {
+                "type": "stream",
+                "value": STREAMS[key],
+                "expiry": None
+            }
+        entry = {
+            "id": id,
+            "fields": fields
+        }
+        STREAMS[key].append(entry)
+        return id
