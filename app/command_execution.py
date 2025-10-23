@@ -736,7 +736,7 @@ def handle_command(command: str, arguments: list, client: socket.socket) -> bool
         
         # Arguments 2 onwards are field/value pairs, which must be parsed into a dict
         fields = {}
-        for i in range(2, len(arguments), 2):
+        for i in range(2, len(arguments) - 1, 2):
             fields[arguments[i]] = arguments[i + 1]
 
 
