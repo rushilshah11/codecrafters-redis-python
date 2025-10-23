@@ -7,9 +7,11 @@ import time
 import argparse
 from xmlrpc import client
 from app.parser import parsed_resp_array
-from app.datastore import BLOCKING_CLIENTS, BLOCKING_CLIENTS_LOCK, BLOCKING_STREAMS, BLOCKING_STREAMS_LOCK, CHANNEL_SUBSCRIBERS, DATA_LOCK, DATA_STORE, SORTED_SETS, STREAMS, add_to_sorted_set, cleanup_blocked_client, get_sorted_set_range, get_sorted_set_rank, get_stream_max_id, get_zscore, increment_key_value, is_client_subscribed, load_rdb_to_datastore, lrange_rtn, num_client_subscriptions, prepend_to_list, remove_elements_from_list, remove_from_sorted_set, size_of_list, append_to_list, existing_list, get_data_entry, set_list, set_string, subscribe, unsubscribe, xadd, xrange, xread
+from app.datastore import BLOCKING_CLIENTS, BLOCKING_CLIENTS_LOCK, BLOCKING_STREAMS, BLOCKING_STREAMS_LOCK, CHANNEL_SUBSCRIBERS, DATA_LOCK, DATA_STORE, SORTED_SETS, STREAMS, add_to_sorted_set, cleanup_blocked_client, get_sorted_set_range, get_sorted_set_rank, get_stream_max_id, get_zscore, increment_key_value, is_client_subscribed, load_rdb_to_datastore, lrange_rtn, multi_toggle, num_client_subscriptions, prepend_to_list, remove_elements_from_list, remove_from_sorted_set, size_of_list, append_to_list, existing_list, get_data_entry, set_list, set_string, subscribe, unsubscribe, xadd, xrange, xread
 
 # --------------------------------------------------------------------------------
+
+multi_flag = False
 
 # Default Redis config
 DIR = "."
@@ -1013,12 +1015,21 @@ def handle_command(command: str, arguments: list, client: socket.socket) -> bool
             print(f"Sent: INCR response for key '{key}' to {client_address}. New value: {new_value}")
 
     elif command == "MULTI":
-        
-
         response = b"+OK\r\n"
         client.sendall(response)
-        print(f"Sent: OK to {client_address} for QUIT command. Closing connection.")
+        print(f"Sent: OK to {client_address} for MULTI command.")
 
+        multi_flag = True
+
+    elif command == "EXEC":
+        if multi_flag:
+            response = b"+OK\r\n"
+            client.sendall(response)
+            print(f"Sent: OK to {client_address} for EXEC command.")
+        else:
+            response = b"-ERR EXEC without MULTI\r\n\r\n"
+            client.sendall(response)
+            print(f"Sent: Error to {client_address} for EXEC command.")
     elif command == "QUIT":
         response = b"+OK\r\n"
         client.sendall(response)
