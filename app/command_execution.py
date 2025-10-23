@@ -7,7 +7,7 @@ import time
 import argparse
 from xmlrpc import client
 from app.parser import parsed_resp_array
-from app.datastore import BLOCKING_CLIENTS, BLOCKING_CLIENTS_LOCK, BLOCKING_STREAMS, CHANNEL_SUBSCRIBERS, DATA_LOCK, DATA_STORE, SORTED_SETS, STREAMS, add_to_sorted_set, cleanup_blocked_client, get_sorted_set_range, get_sorted_set_rank, get_zscore, is_client_subscribed, load_rdb_to_datastore, lrange_rtn, num_client_subscriptions, prepend_to_list, remove_elements_from_list, remove_from_sorted_set, size_of_list, append_to_list, existing_list, get_data_entry, set_list, set_string, subscribe, unsubscribe, xadd, xread
+from app.datastore import BLOCKING_CLIENTS, BLOCKING_CLIENTS_LOCK, BLOCKING_STREAMS, BLOCKING_STREAMS_LOCK, CHANNEL_SUBSCRIBERS, DATA_LOCK, DATA_STORE, SORTED_SETS, STREAMS, add_to_sorted_set, cleanup_blocked_client, get_sorted_set_range, get_sorted_set_rank, get_zscore, is_client_subscribed, load_rdb_to_datastore, lrange_rtn, num_client_subscriptions, prepend_to_list, remove_elements_from_list, remove_from_sorted_set, size_of_list, append_to_list, existing_list, get_data_entry, set_list, set_string, subscribe, unsubscribe, xadd, xrange, xread
 
 # --------------------------------------------------------------------------------
 
@@ -31,8 +31,6 @@ if os.path.exists(RDB_PATH):
 else:
     print(f"RDB file not found at {RDB_PATH}, starting with empty DATA_STORE.")
 
-
-# Helper function to serialize the XREAD response
 def _xread_serialize_response(stream_data: dict[str, list[dict]]) -> bytes:
     """Serializes the result of xread into a RESP array response."""
     if not stream_data:
@@ -78,6 +76,7 @@ def _xread_serialize_response(stream_data: dict[str, list[dict]]) -> bytes:
 
     # Final response: Array of [key, entries] arrays
     return b"*" + str(len(outer_response_parts)).encode() + b"\r\n" + b"".join(outer_response_parts)
+
 
 def handle_command(command: str, arguments: list, client: socket.socket) -> bool:
     """
@@ -774,6 +773,7 @@ def handle_command(command: str, arguments: list, client: socket.socket) -> bool
 
     elif command == "XADD":
         # XADD requires at least: key, id, field, value (4 arguments), and even number of field/value pairs
+
         if len(arguments) < 4 or (len(arguments) - 2) % 2 != 0:
             response = b"-ERR wrong number of arguments for 'XADD' command\r\n"
             client.sendall(response)
@@ -787,57 +787,92 @@ def handle_command(command: str, arguments: list, client: socket.socket) -> bool
 
         new_entry_id_or_error = xadd(key, entry_id, fields)
 
-        # Check if xadd returned an error (RESP errors start with '-')
+        i# Check if xadd returned an error (RESP errors start with '-')
         if new_entry_id_or_error.startswith(b'-'):
             response = new_entry_id_or_error
             client.sendall(response)
             print(f"Sent: XADD error response to {client_address}.")
             return True
-        
-        # Success: new_entry_id_or_error is the raw ID bytes (e.g. b"1-0").
-        raw_id_bytes = new_entry_id_or_error
-        
-        # --- Blocking Client Check and Notification (XREAD BLOCK) ---
-        blocked_client_condition = None
-        new_entry = None
+        else:
+            # Success: new_entry_id_or_error is the raw ID bytes (e.g. b"1-0").
+            # Format as a RESP Bulk String. Fixed the incorrect .encode() call on a bytes object.
+            raw_id_bytes = new_entry_id_or_error
+            blocked_client_condition = None
+            new_entry = None
 
-        with BLOCKING_CLIENTS_LOCK:
-            # Check for the longest-waiting client blocking on this stream key
-            if key in BLOCKING_STREAMS and BLOCKING_STREAMS[key]:
-                blocked_client_condition = BLOCKING_STREAMS[key].pop(0)
+            with BLOCKING_STREAMS_LOCK:
+                if key in BLOCKING_STREAMS and BLOCKING_STREAMS[key]:
+                    blocked_client_condition = BLOCKING_STREAMS[key].pop(0)
 
-        # Retrieve the new entry and handle notification only if a client was found.
-        if blocked_client_condition:
-            with DATA_LOCK: # Acquire lock to safely access STREAMS
-                # Since xadd just completed, the entry must be the last one.
-                if key in STREAMS and STREAMS[key]:
-                    new_entry = STREAMS[key][-1]
-            
-            if new_entry:
-                # Prepare the data structure for serialization (single entry for a single stream)
-                stream_data_to_send = {key: [new_entry]}
-                xread_block_response = _xread_serialize_response(stream_data_to_send)
-
-                blocked_client_socket = blocked_client_condition.client_socket
+            if blocked_client_condition:
+            # Get the single new entry that was just added (it's the last one)
+                with DATA_LOCK: # Acquire lock to safely access STREAMS
+                    if key in STREAMS and STREAMS[key]:
+                        new_entry = STREAMS[key][-1]
                 
-                # Send the XREAD BLOCK response directly to the blocked client's socket.
-                try:
-                    blocked_client_socket.sendall(xread_block_response)
-                except Exception:
-                    pass # Ignore send errors
+                if new_entry:
+                    # Prepare the data structure for serialization (single entry for a single stream)
+                    stream_data_to_send = {key: [new_entry]}
+                    xread_block_response = _xread_serialize_response(stream_data_to_send)
 
-                # Wake up the blocked thread by notifying its Condition.
-                # Must be done after sending the data.
-                with blocked_client_condition:
-                    blocked_client_condition.notify() 
-        # --- End Blocking Client Check ---
+                    blocked_client_socket = blocked_client_condition.client_socket
+                    
+                    # Send the XREAD BLOCK response directly to the blocked client's socket.
+                    try:
+                        blocked_client_socket.sendall(xread_block_response)
+                    except Exception:
+                        pass # Ignore send errors
 
-        # Send XADD success response
-        length_bytes = str(len(raw_id_bytes)).encode()
-        response = b"$" + length_bytes + b"\r\n" + raw_id_bytes + b"\r\n"
+                    # Wake up the blocked thread by notifying its Condition.
+                    with blocked_client_condition:
+                        blocked_client_condition.notify()
+
+            length_bytes = str(len(raw_id_bytes)).encode()
+            response = b"$" + length_bytes + b"\r\n" + raw_id_bytes + b"\r\n"
+            client.sendall(response)
+            print(f"Sent: XADD response for stream '{key}' to {client_address}. New entry ID: {raw_id_bytes.decode()}")
+
+    elif command == "XRANGE":
+        if len(arguments) < 3:
+            response = b"-ERR wrong number of arguments for 'XRANGE' command\r\n"
+            client.sendall(response)
+            print(f"Sent: XRANGE argument error to {client_address}.")
+            return True
+        
+        key = arguments[0]
+        start_id = arguments[1]
+        end_id = arguments[2]
+
+        entries = xrange(key, start_id, end_id)
+
+        response_parts = []
+        for entry in entries:
+            entry_id = entry["id"]
+            fields = entry["fields"]
+
+            # Construct RESP Array for each entry: [entry_id, [field1, value1, field2, value2, ...]]
+            entry_parts = []
+            entry_id_bytes = entry_id.encode()
+            entry_parts.append(b"$" + str(len(entry_id_bytes)).encode() + b"\r\n" + entry_id_bytes + b"\r\n")
+
+            # Now construct the inner array of fields and values
+            field_value_parts = []
+            for field, value in fields.items():
+                field_bytes = field.encode()
+                value_bytes = value.encode()
+                field_value_parts.append(b"$" + str(len(field_bytes)).encode() + b"\r\n" + field_bytes + b"\r\n")
+                field_value_parts.append(b"$" + str(len(value_bytes)).encode() + b"\r\n" + value_bytes + b"\r\n")
+
+            # Combine field/value parts into an array
+            field_value_array = b"*" + str(len(field_value_parts)).encode() + b"\r\n" + b"".join(field_value_parts)
+            entry_parts.append(field_value_array)
+
+            # Combine entry parts into an array
+            entry_array = b"*" + str(len(entry_parts)).encode() + b"\r\n" + b"".join(entry_parts)
+            response_parts.append(entry_array)
+        response = b"*" + str(len(response_parts)).encode() + b"\r\n" + b"".join(response_parts)
         client.sendall(response)
-        print(f"Sent: XADD response for stream '{key}' to {client_address}. New entry ID: {raw_id_bytes.decode()}")
-
+        print(f"Sent: XRANGE response for stream '{key}' to {client_address}.")
 
     elif command == "XREAD":
         # Format: XREAD [BLOCK <ms>] STREAMS key1 key2 ... id1 id2 ...
@@ -907,13 +942,15 @@ def handle_command(command: str, arguments: list, client: socket.socket) -> bool
                 return True
             
             key_to_block = keys[0]
+            id_to_wait_for = ids[0]
 
             # Create and register the condition
             client_condition = threading.Condition()
             client_condition.client_socket = client
             client_condition.key = key_to_block 
+            client_condition.id_to_wait_for = id_to_wait_for
 
-            with BLOCKING_CLIENTS_LOCK:
+            with BLOCKING_STREAMS_LOCK:
                 BLOCKING_STREAMS.setdefault(key_to_block, []).append(client_condition)
 
             # Wait for notification or timeout
@@ -927,10 +964,20 @@ def handle_command(command: str, arguments: list, client: socket.socket) -> bool
             # 6. Post-block handling
             if notified:
                 # If True, XADD already sent the response.
-                return True 
+
+                keys_to_read = [key_to_block]
+                ids_to_read = [id_to_wait_for]
+               
+                final_stream_data = xread(keys_to_read, ids_to_read)
+
+                if final_stream_data:
+                    response = _xread_serialize_response(final_stream_data)
+                    client.sendall(response)
+                    print(f"Sent: XREAD response (unblocked, re-read) to {client_address}.")
+                    return True
             else:
                 # Timeout occurred. Clean up the blocking registration.
-                with BLOCKING_CLIENTS_LOCK:
+                with BLOCKING_STREAMS_LOCK:
                     if client_condition in BLOCKING_STREAMS.get(key_to_block, []):
                         BLOCKING_STREAMS[key_to_block].remove(client_condition)
                         if not BLOCKING_STREAMS[key_to_block]:
@@ -942,7 +989,7 @@ def handle_command(command: str, arguments: list, client: socket.socket) -> bool
                 return True
 
         # 7. Non-blocking path (no data, no BLOCK keyword) - returns Null Array
-        response = b"*-1\r\n" 
+        response = b"*0\r\n" 
         client.sendall(response)
         return True
 
@@ -952,7 +999,6 @@ def handle_command(command: str, arguments: list, client: socket.socket) -> bool
         print(f"Sent: OK to {client_address} for QUIT command. Closing connection.")
         cleanup_blocked_client(client)
         return False  # Signal to close the connection
-
 def handle_connection(client: socket.socket, client_address):
     """
     This function is called for each new client connection.
