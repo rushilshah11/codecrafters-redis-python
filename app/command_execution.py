@@ -7,7 +7,7 @@ import time
 import argparse
 from xmlrpc import client
 from app.parser import parsed_resp_array
-from app.datastore import BLOCKING_CLIENTS, BLOCKING_CLIENTS_LOCK, CHANNEL_SUBSCRIBERS, DATA_LOCK, DATA_STORE, SORTED_SETS, add_to_sorted_set, cleanup_blocked_client, get_sorted_set_range, get_sorted_set_rank, get_zscore, is_client_subscribed, load_rdb_to_datastore, lrange_rtn, num_client_subscriptions, prepend_to_list, remove_elements_from_list, remove_from_sorted_set, size_of_list, append_to_list, existing_list, get_data_entry, set_list, set_string, subscribe, unsubscribe, xadd, xrange, xread
+from app.datastore import BLOCKING_CLIENTS, BLOCKING_CLIENTS_LOCK, BLOCKING_STREAMS, CHANNEL_SUBSCRIBERS, DATA_LOCK, DATA_STORE, SORTED_SETS, STREAMS, _xread_serialize_response, add_to_sorted_set, cleanup_blocked_client, get_sorted_set_range, get_sorted_set_rank, get_zscore, is_client_subscribed, load_rdb_to_datastore, lrange_rtn, num_client_subscriptions, prepend_to_list, remove_elements_from_list, remove_from_sorted_set, size_of_list, append_to_list, existing_list, get_data_entry, set_list, set_string, subscribe, unsubscribe, xadd, xrange, xread
 
 # --------------------------------------------------------------------------------
 
@@ -726,7 +726,7 @@ def handle_command(command: str, arguments: list, client: socket.socket) -> bool
 
     elif command == "XADD":
         # XADD requires at least: key, id, field, value (4 arguments), and even number of field/value pairs
-        print("entered XADD")
+
         if len(arguments) < 4 or (len(arguments) - 2) % 2 != 0:
             response = b"-ERR wrong number of arguments for 'XADD' command\r\n"
             client.sendall(response)
@@ -738,7 +738,6 @@ def handle_command(command: str, arguments: list, client: socket.socket) -> bool
         for i in range(2, len(arguments) - 1, 2):
             fields[arguments[i]] = arguments[i + 1]
 
-        print("PRINT calling xadd")
         new_entry_id_or_error = xadd(key, entry_id, fields)
 
         i# Check if xadd returned an error (RESP errors start with '-')
@@ -750,6 +749,35 @@ def handle_command(command: str, arguments: list, client: socket.socket) -> bool
             # Success: new_entry_id_or_error is the raw ID bytes (e.g. b"1-0").
             # Format as a RESP Bulk String. Fixed the incorrect .encode() call on a bytes object.
             raw_id_bytes = new_entry_id_or_error
+            blocked_client_condition = None
+            with BLOCKING_CLIENTS_LOCK:
+                if key in BLOCKING_CLIENTS and BLOCKING_CLIENTS[key]:
+                    blocked_client_condition = BLOCKING_CLIENTS[key].pop(0)
+
+            if blocked_client_condition:
+            # Get the single new entry that was just added (it's the last one)
+                new_entry = None
+                with DATA_LOCK: # Acquire lock to safely access STREAMS
+                    if key in STREAMS and STREAMS[key] and STREAMS[key][-1]["id"].encode() == raw_id_bytes:
+                        new_entry = STREAMS[key][-1]
+                
+                if new_entry:
+                    # Prepare the data structure for serialization (single entry for a single stream)
+                    stream_data_to_send = {key: [new_entry]}
+                    xread_block_response = _xread_serialize_response(stream_data_to_send)
+
+                    blocked_client_socket = blocked_client_condition.client_socket
+                    
+                    # Send the XREAD BLOCK response directly to the blocked client's socket.
+                    try:
+                        blocked_client_socket.sendall(xread_block_response)
+                    except Exception:
+                        pass # Ignore send errors
+
+                    # Wake up the blocked thread by notifying its Condition.
+                    with blocked_client_condition:
+                        blocked_client_condition.notify()
+
             length_bytes = str(len(raw_id_bytes)).encode()
             response = b"$" + length_bytes + b"\r\n" + raw_id_bytes + b"\r\n"
             client.sendall(response)
@@ -798,91 +826,111 @@ def handle_command(command: str, arguments: list, client: socket.socket) -> bool
         print(f"Sent: XRANGE response for stream '{key}' to {client_address}.")
 
     elif command == "XREAD":
-        # Format: XREAD STREAMS key1 key2 ... id1 id2 ...
-        # 1. Check basic arguments: must contain 'STREAMS' and at least one key/id pair (min 3 args)
-        if len(arguments) < 3 or arguments[0].upper() != "STREAMS":
+        # Format: XREAD [BLOCK <ms>] STREAMS key1 key2 ... id1 id2 ...
+        
+        # 1. Parse optional BLOCK argument
+        arguments_start_index = 0
+        timeout_ms = None
+        
+        if len(arguments) >= 3 and arguments[0].upper() == "BLOCK":
+            try:
+                # Timeout is in milliseconds, convert to seconds for threading.wait
+                timeout_ms = int(arguments[1]) 
+                arguments_start_index = 2
+            except ValueError:
+                response = b"-ERR timeout is not an integer\r\n"
+                client.sendall(response)
+                return True
+        
+        # 2. Check for STREAMS keyword and argument count
+        if len(arguments) < arguments_start_index + 3 or arguments[arguments_start_index].upper() != "STREAMS":
             response = b"-ERR wrong number of arguments or missing STREAMS keyword for 'XREAD' command\r\n"
             client.sendall(response)
             return True
 
-        # 2. Find the split point between keys and IDs
-        # The arguments array looks like: [STREAMS, key1, key2, ..., id1, id2, ...]
-        keys_start_index = 1
-        num_args_after_streams = len(arguments) - 1
+        # 3. Find the split point between keys and IDs
+        streams_keyword_index = arguments_start_index
+        args_after_streams = arguments[streams_keyword_index + 1:]
+        num_args_after_streams = len(args_after_streams)
         
-        # The split point is exactly halfway through the remaining arguments,
-        # assuming an even number of arguments (which is required for a valid command).
         if num_args_after_streams % 2 != 0:
             response = b"-ERR unaligned key/id pairs for 'XREAD' command\r\n"
             client.sendall(response)
             return True
 
         num_keys = num_args_after_streams // 2
-        keys = arguments[keys_start_index : keys_start_index + num_keys]
+        
+        keys_start_index = 0
+        keys = args_after_streams[keys_start_index : keys_start_index + num_keys]
         ids_start_index = keys_start_index + num_keys
-        ids = arguments[ids_start_index:]
+        ids = args_after_streams[ids_start_index:]
 
-        # Sanity check (should be redundant if the split logic is correct, but safe to keep)
-        if len(keys) != len(ids):
-            response = b"-ERR unaligned key/id pairs for 'XREAD' command\r\n"
-            client.sendall(response)
-            return True
-
-        # 3. Call the data store function
+        # 4. Main XREAD logic loop (synchronous part - fast path)
         stream_data = xread(keys, ids)
         
-        # 4. Serialize the result (stream_data: dict[key, list[entry: dict]])
-        
-        if not stream_data:
-            response = b"*-1\r\n" # RESP Null Array if no new entries found
+        if stream_data:
+            # Non-blocking path: Data is available. Serialize and send immediately.
+            response = _xread_serialize_response(stream_data)
             client.sendall(response)
+            print(f"Sent: XREAD response (non-blocking) to {client_address}.")
             return True
-
-        # Outer Array: Array of [key, [entry1, entry2, ...]]
-        # *N\r\n
-        outer_response_parts = []
-
-        for key, entries in stream_data.items():
-            # Array for [key, list of entries] -> *2\r\n
-            key_resp = b"$" + str(len(key.encode())).encode() + b"\r\n" + key.encode() + b"\r\n"
-            
-            # Array for list of entries -> *M\r\n
-            entries_array_parts = []
-            for entry in entries:
-                entry_id = entry["id"]
-                fields = entry["fields"]
-
-                # Array for [id, [field1, value1, field2, value2, ...]] -> *2\r\n
-                id_resp = b"$" + str(len(entry_id.encode())).encode() + b"\r\n" + entry_id.encode() + b"\r\n"
-
-                # Array for field/value pairs -> *2K\r\n
-                fields_array_parts = []
-                for field, value in fields.items():
-                    field_bytes = field.encode()
-                    value_bytes = value.encode()
-                    fields_array_parts.append(b"$" + str(len(field_bytes)).encode() + b"\r\n" + field_bytes + b"\r\n")
-                    fields_array_parts.append(b"$" + str(len(value_bytes)).encode() + b"\r\n" + value_bytes + b"\r\n")
-                
-                fields_array_resp = b"*" + str(len(fields) * 2).encode() + b"\r\n" + b"".join(fields_array_parts)
-
-                # Combine [id, fields_array]
-                entry_array_resp = b"*2\r\n" + id_resp + fields_array_resp
-                entries_array_parts.append(entry_array_resp)
-            
-            # Combine all entries into the inner array
-            entries_resp = b"*" + str(len(entries_array_parts)).encode() + b"\r\n" + b"".join(entries_array_parts)
-            
-            # Combine [key, entries_resp]
-            key_entries_resp = b"*2\r\n" + key_resp + entries_resp
-            outer_response_parts.append(key_entries_resp)
-
-        # Final response: Array of [key, entries] arrays
-        response = b"*" + str(len(outer_response_parts)).encode() + b"\r\n" + b"".join(outer_response_parts)
         
-        client.sendall(response)
-        print(f"Sent: XREAD response to {client_address}.")
-        return True
+        # 5. Blocking path
+        if timeout_ms is not None:
+            # We are blocking: list of entries is empty.
 
+            if timeout_ms == 0:
+                # BLOCK 0 means block indefinitely.
+                timeout = None
+            else:
+                # Convert ms to seconds.
+                timeout = timeout_ms / 1000.0
+            
+            # Since only one key/id pair is supported in this stage, enforce it for blocking
+            if len(keys) != 1:
+                response = b"-ERR only single key blocking supported in this stage\r\n"
+                client.sendall(response)
+                return True
+            
+            key_to_block = keys[0]
+
+            # Create and register the condition
+            client_condition = threading.Condition()
+            client_condition.client_socket = client
+            client_condition.key = key_to_block 
+
+            with BLOCKING_CLIENTS_LOCK:
+                BLOCKING_STREAMS.setdefault(key_to_block, []).append(client_condition)
+
+            # Wait for notification or timeout
+            notified = False
+            with client_condition:
+                if timeout is None:
+                    notified = client_condition.wait()
+                else:
+                    notified = client_condition.wait(timeout)
+
+            # 6. Post-block handling
+            if notified:
+                # If True, XADD already sent the response.
+                return True 
+            else:
+                # Timeout occurred. Clean up the blocking registration.
+                with BLOCKING_CLIENTS_LOCK:
+                    if client_condition in BLOCKING_STREAMS.get(key_to_block, []):
+                        BLOCKING_STREAMS[key_to_block].remove(client_condition)
+                        if not BLOCKING_STREAMS[key_to_block]:
+                            del BLOCKING_STREAMS[key_to_block]
+                
+                # Send Null Array response on timeout: Redis returns "*-1\r\n"
+                response = b"*-1\r\n"
+                client.sendall(response)
+                return True
+
+        # 7. Non-blocking path (no data, no BLOCK keyword) - returns Null Array
+        response = b"*-1\r\n" 
+        client.sendall(response)
+        return True
 
 
 

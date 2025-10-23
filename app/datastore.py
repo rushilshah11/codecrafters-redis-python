@@ -7,6 +7,7 @@ DATA_LOCK = threading.Lock()
 
 BLOCKING_CLIENTS_LOCK = threading.Lock()
 BLOCKING_CLIENTS = {}
+BLOCKING_STREAMS = {}
 
 CHANNEL_SUBSCRIBERS = {}
 CLIENT_SUBSCRIPTIONS = {}
@@ -656,6 +657,50 @@ def xread(keys: list[str], last_ids: list[str]) -> dict[str, list[dict]]:
 
         return result
 
+def _xread_serialize_response(stream_data: dict[str, list[dict]]) -> bytes:
+    """Serializes the result of xread into a RESP array response."""
+    if not stream_data:
+        return b"*-1\r\n" 
 
+    # Outer Array: Array of [key, [entry1, entry2, ...]]
+    # *N\r\n
+    outer_response_parts = []
+
+    for key, entries in stream_data.items():
+        # Array for [key, list of entries] -> *2\r\n
+        key_resp = b"$" + str(len(key.encode())).encode() + b"\r\n" + key.encode() + b"\r\n"
+        
+        # Array for list of entries -> *M\r\n
+        entries_array_parts = []
+        for entry in entries:
+            entry_id = entry["id"]
+            fields = entry["fields"]
+
+            # Array for [id, [field1, value1, field2, value2, ...]] -> *2\r\n
+            id_resp = b"$" + str(len(entry_id.encode())).encode() + b"\r\n" + entry_id.encode() + b"\r\n"
+
+            # Array for field/value pairs -> *2K\r\n
+            fields_array_parts = []
+            for field, value in fields.items():
+                field_bytes = field.encode()
+                value_bytes = value.encode()
+                fields_array_parts.append(b"$" + str(len(field_bytes)).encode() + b"\r\n" + field_bytes + b"\r\n")
+                fields_array_parts.append(b"$" + str(len(value_bytes)).encode() + b"\r\n" + value_bytes + b"\r\n")
+            
+            fields_array_resp = b"*" + str(len(fields) * 2).encode() + b"\r\n" + b"".join(fields_array_parts)
+
+            # Combine [id, fields_array]
+            entry_array_resp = b"*2\r\n" + id_resp + fields_array_resp
+            entries_array_parts.append(entry_array_resp)
+        
+        # Combine all entries into the inner array
+        entries_resp = b"*" + str(len(entries_array_parts)).encode() + b"\r\n" + b"".join(entries_array_parts)
+        
+        # Combine [key, entries_resp]
+        key_entries_resp = b"*2\r\n" + key_resp + entries_resp
+        outer_response_parts.append(key_entries_resp)
+
+    # Final response: Array of [key, entries] arrays
+    return b"*" + str(len(outer_response_parts)).encode() + b"\r\n" + b"".join(outer_response_parts)
 
 
