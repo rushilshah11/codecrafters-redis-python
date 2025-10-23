@@ -1046,6 +1046,17 @@ def execute_single_command(command: str, arguments: list, client: socket.socket)
             response = b"-ERR EXEC without MULTI\r\n"
             # client.sendall(response
             return response
+    
+    elif command == "DISCARD":
+        if is_client_in_multi(client):
+            response = b"+OK\r\n"
+            set_client_in_multi(client, False)
+            # client.sendall(response
+            return response
+        else:
+            response = b"-ERR DISCARD without MULTI\r\n"
+            # client.sendall(response
+            return response
         
     elif command == "QUIT":
         response = b"+OK\r\n"
@@ -1084,9 +1095,6 @@ def handle_command(command: str, arguments: list, client: socket.socket) -> bool
     if response_or_signal is None:
         print(f"Execution signal: Command '{command}' successfully processed (response sent by another thread or not required).")
         return True
-    
-    # All other cases (which should be only False for QUIT, handled above)
-    return True
     
     # Otherwise, send the response
     if response_or_signal is not False: # Ensure it's not the signal from QUIT (which we handled above)
