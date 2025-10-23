@@ -127,28 +127,36 @@ def execute_single_command(command: str, arguments: list, client: socket.socket)
         response = b"+OK\r\n"
         return response
     
-    elif command == "PSYNC":
+    # In command_execution.py, inside execute_single_command:
+
+    elif command == "PSYNC": 
         # The master receives PSYNC ? -1 from the replica.
         
         # 1. Construct and send the +FULLRESYNC response
         repl_id = MASTER_REPLID
         offset = MASTER_REPL_OFFSET 
-        fullresync_response = f"+FULLRESYNC {repl_id} {offset}\r\n".encode()
+        # Use an explicit variable to hold the bytes for clean send operation.
+        fullresync_bytes = f"+FULLRESYNC {repl_id} {offset}\r\n".encode()
         
         # Send the +FULLRESYNC response immediately (Step 1)
-        client.sendall(fullresync_response)
+        try:
+            client.sendall(fullresync_bytes)
 
-        # 2. Append the RDB file transfer
-        print(f"Master: Sending RDB file of size {RDB_FILE_SIZE} bytes to replica...")
-        
-        # Send the RDB Bulk String Header: $59\r\n (Step 2a)
-        client.sendall(RDB_HEADER)
-        
-        # Send the 59 bytes of empty RDB content (Step 2b)
-        client.sendall(EMPTY_RDB_HEX)
-        
-        # IMPORTANT: Return True to indicate that the response was already sent
-        # inside this function and the caller should NOT send anything further.
+            # 2. Append the RDB file transfer
+            print(f"Master: Sending RDB file of size {RDB_FILE_SIZE} bytes to replica...")
+            
+            # Send the RDB Bulk String Header: $59\r\n (Step 2a)
+            client.sendall(RDB_HEADER)
+            
+            # Send the 59 bytes of empty RDB content (Step 2b)
+            client.sendall(EMPTY_RDB_HEX)
+        except Exception as e:
+            # If sending fails (e.g., client disconnected), log and return True to clean up the thread.
+            print(f"Error sending PSYNC full synchronization data: {e}")
+            
+        # Signal that the response has been sent directly via client.sendall().
+        # This prevents the handle_command function from sending an extra response 
+        # and ensures the thread exits cleanly after the successful send operation.
         return True
     
     elif command == "ECHO":
