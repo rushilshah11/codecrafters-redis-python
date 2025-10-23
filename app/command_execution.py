@@ -743,7 +743,8 @@ def handle_command(command: str, arguments: list, client: socket.socket) -> bool
         new_entry_id = xadd(key, entry_id, fields)
         if isinstance(new_entry_id, bytes):
             # Error response from xadd
-            client.sendall(new_entry_id)
+            response = b"-ERR " + new_entry_id + b"\r\n"
+            client.sendall(response)
             print(f"Sent: XADD error for key '{key}' to {client_address}.")
         else:
             # Success: RESP bulk string with the new entry ID

@@ -539,7 +539,7 @@ def xadd(key: str, id: str, fields: dict[str, str]) -> str | bytes:
         _, error_response = _verify_and_parse_new_id(id, last_id_str)
         
         if error_response is not None:
-            return ""
+            return error_response
             
         # 4. Initialization (idempotent)
         if key not in STREAMS:
