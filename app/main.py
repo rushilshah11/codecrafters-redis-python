@@ -18,7 +18,8 @@ def main():
     master_port = None
     
     # Simple argument parsing loop
-    for i in range(0, len(args), 2):
+    i=0
+    while i < len(args):
         if args[i] == "--port":
             try:
                 # Use the value after --port
