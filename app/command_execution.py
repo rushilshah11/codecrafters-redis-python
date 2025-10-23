@@ -972,7 +972,7 @@ def handle_command(command: str, arguments: list, client: socket.socket) -> bool
                             del BLOCKING_STREAMS[key_to_block]
                 
                 # Send Null Array response on timeout: Redis returns "*-1\r\n"
-                response = b"*0\r\n"
+                response = b"*-1\r\n"
                 client.sendall(response)
                 return True
 
