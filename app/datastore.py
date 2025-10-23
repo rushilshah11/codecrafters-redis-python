@@ -511,9 +511,19 @@ def _verify_and_parse_new_id(new_id_str: str, last_id_str: str | None) -> tuple[
         final_id_str = f"{new_ms}-{new_seq}"
         return final_id_str, None
         
-    # 2. Handle Auto-generation of Full ID (*) - Unsupported in this stage
+    # 2. Handle Auto-generation of Full ID (*)
     if new_id_str == "*":
-        return None, b"-ERR Only explicit and milliseconds-time-part auto-generation IDs are supported in this stage\r\n"
+        # Auto-generate both millisecondsTime and sequenceNumber
+        current_time_ms = int(time.time() * 1000)
+
+        new_ms = current_time_ms
+        if new_ms > last_ms:
+            new_seq = 0
+        else:  # new_ms == last_ms
+            new_seq = last_seq + 1
+
+        final_id_str = f"{new_ms}-{new_seq}"
+        return final_id_str, None
 
     # 3. Handle Explicit ID (ms-seq)
     try:
@@ -551,13 +561,12 @@ def xadd(key: str, id: str, fields: dict[str, str]) -> bytes:
     """
     with DATA_LOCK:
         
-        # 2. Get last ID (safely handle non-existent key after expiration check)
+        # Get last ID (safely handle non-existent key after expiration check)
         last_id_str = None
         if key in STREAMS and STREAMS[key]:
             last_id_str = STREAMS[key][-1]["id"]
 
-        # 3. Validation
-        # The first element of the tuple is ignored here, only the error_response is used
+        # validation
         final_id_str, error_response = _verify_and_parse_new_id(id, last_id_str)
         print(f"final_id_str: {final_id_str}")
 
@@ -565,7 +574,7 @@ def xadd(key: str, id: str, fields: dict[str, str]) -> bytes:
             return error_response
             
         new_entry_id = final_id_str
-        # 4. Initialization (idempotent)
+        # Initialization (idempotent)
         if key not in STREAMS:
             STREAMS[key] = []
         if key not in DATA_STORE:
@@ -575,12 +584,12 @@ def xadd(key: str, id: str, fields: dict[str, str]) -> bytes:
                 "expiry": None
             }
         
-        # 5. Add Entry
+        # Add Entry
         entry = {
             "id": new_entry_id,
             "fields": fields
         }
         STREAMS[key].append(entry)
         
-        # 6. Success: Return the ID string for command execution to format
+        # Success: Return the ID string for command execution to format
         return new_entry_id.encode()
