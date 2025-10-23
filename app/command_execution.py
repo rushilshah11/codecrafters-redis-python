@@ -740,17 +740,9 @@ def handle_command(command: str, arguments: list, client: socket.socket) -> bool
         fields = {}
         for i in range(2, len(arguments), 2):
             fields[arguments[i]] = arguments[i + 1]
-        
-        # Call xadd. It returns either the ID string (success) or error bytes (failure).
-        result = xadd(key, entry_id, fields)
-        
-        if isinstance(result, bytes):
-            # If result is bytes, it's a RESP error message, send it directly.
-            response = result
-        else:
-            # If result is a string, it's the entry ID, format it as a RESP Bulk String.
-            new_entry_id = result # result is the ID string
-            response = b"$" + str(len(new_entry_id.encode())).encode() + b"\r\n" + new_entry_id.encode() + b"\r\n"
+
+        new_entry_id = xadd(key, entry_id, fields)
+        response = b"$" + str(len(new_entry_id.encode())).encode() + b"\r\n" + new_entry_id.encode() + b"\r\n"
         
         client.sendall(response)
         print(f"Sent: XADD response for key '{key}' to {client_address}.")
