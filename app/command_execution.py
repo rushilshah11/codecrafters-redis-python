@@ -7,7 +7,7 @@ import time
 import argparse
 from xmlrpc import client
 from app.parser import parsed_resp_array
-from app.datastore import BLOCKING_CLIENTS, BLOCKING_CLIENTS_LOCK, BLOCKING_STREAMS, BLOCKING_STREAMS_LOCK, CHANNEL_SUBSCRIBERS, DATA_LOCK, DATA_STORE, SORTED_SETS, STREAMS, add_to_sorted_set, cleanup_blocked_client, get_sorted_set_range, get_sorted_set_rank, get_zscore, is_client_subscribed, load_rdb_to_datastore, lrange_rtn, num_client_subscriptions, prepend_to_list, remove_elements_from_list, remove_from_sorted_set, size_of_list, append_to_list, existing_list, get_data_entry, set_list, set_string, subscribe, unsubscribe, xadd, xrange, xread
+from app.datastore import BLOCKING_CLIENTS, BLOCKING_CLIENTS_LOCK, BLOCKING_STREAMS, BLOCKING_STREAMS_LOCK, CHANNEL_SUBSCRIBERS, DATA_LOCK, DATA_STORE, SORTED_SETS, STREAMS, add_to_sorted_set, cleanup_blocked_client, get_sorted_set_range, get_sorted_set_rank, get_stream_max_id, get_zscore, is_client_subscribed, load_rdb_to_datastore, lrange_rtn, num_client_subscriptions, prepend_to_list, remove_elements_from_list, remove_from_sorted_set, size_of_list, append_to_list, existing_list, get_data_entry, set_list, set_string, subscribe, unsubscribe, xadd, xrange, xread
 
 # --------------------------------------------------------------------------------
 
@@ -914,8 +914,16 @@ def handle_command(command: str, arguments: list, client: socket.socket) -> bool
         ids_start_index = keys_start_index + num_keys
         ids = args_after_streams[ids_start_index:]
 
+        resolved_ids = []
+        for key, last_id in zip(keys, ids):
+            if last_id == "$":
+                resolved_ids.append(get_stream_max_id(key))
+            else:
+                resolved_ids.append(last_id)
+        
+
         # 4. Main XREAD logic loop (synchronous part - fast path)
-        stream_data = xread(keys, ids)
+        stream_data = xread(keys, resolved_ids)
         
         if stream_data:
             # Non-blocking path: Data is available. Serialize and send immediately.
