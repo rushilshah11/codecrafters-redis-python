@@ -22,6 +22,12 @@ MASTER_PORT = None
 MASTER_REPLID = "8371b4fb1155b71f4a04d3e1bc3e18c4a990aeeb" # Hardcoded 40-char ID
 MASTER_REPL_OFFSET = 0 # Starts at 0
 MASTER_SOCKET = None
+
+# Define the 59-byte empty RDB file content (hexadecimal)
+EMPTY_RDB_HEX = b"\x52\x45\x44\x49\x53\x30\x30\x31\x31\xfa\x09\x72\x65\x64\x69\x73\x2d\x76\x65\x72\x05\x37\x2e\x32\x2e\x34\xfa\x0a\x72\x65\x70\x6c\x2d\x69\x64\x00\xc0\xfa\x08\x70\x70\x6d\x73\x01\xfa\x09\x75\x73\x65\x63\x2d\x6d\x73\x00\xfb\x01\xfb\x00\xff\x0a"
+RDB_FILE_SIZE = 59
+RDB_HEADER = f"${RDB_FILE_SIZE}\r\n".encode()
+
 # Parse args like --dir /path --dbfilename file.rdb
 args = sys.argv[1:]
 for i in range(0, len(args), 2):
@@ -121,20 +127,29 @@ def execute_single_command(command: str, arguments: list, client: socket.socket)
         response = b"+OK\r\n"
         return response
     
-    elif command == "PSYNC": # <--- ADDED PSYNC COMMAND
+    elif command == "PSYNC":
         # The master receives PSYNC ? -1 from the replica.
-        # It must respond with +FULLRESYNC <REPL_ID> <OFFSET>\r\n encoded as a Simple String.
         
-        # 1. Retrieve the master's replication ID and offset
+        # 1. Construct and send the +FULLRESYNC response
         repl_id = MASTER_REPLID
-        offset = MASTER_REPL_OFFSET # Which is currently 0
-
-        # 2. Construct the response string
-        response_str = f"+FULLRESYNC {repl_id} {offset}\r\n"
+        offset = MASTER_REPL_OFFSET 
+        fullresync_response = f"+FULLRESYNC {repl_id} {offset}\r\n".encode()
         
-        # 3. Encode the response as bytes and return
-        response = response_str.encode()
-        return response
+        # Send the +FULLRESYNC response immediately (Step 1)
+        client.sendall(fullresync_response)
+
+        # 2. Append the RDB file transfer
+        print(f"Master: Sending RDB file of size {RDB_FILE_SIZE} bytes to replica...")
+        
+        # Send the RDB Bulk String Header: $59\r\n (Step 2a)
+        client.sendall(RDB_HEADER)
+        
+        # Send the 59 bytes of empty RDB content (Step 2b)
+        client.sendall(EMPTY_RDB_HEX)
+        
+        # IMPORTANT: Return True to indicate that the response was already sent
+        # inside this function and the caller should NOT send anything further.
+        return True
     
     elif command == "ECHO":
         if not arguments:
