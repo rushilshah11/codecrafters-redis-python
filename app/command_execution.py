@@ -26,6 +26,22 @@ EARTH_RADIUS_M = 6372797.560856
 
 # ... (MIN_LON, MAX_LON, MIN_LAT, MAX_LAT and coordinate helper functions remain the same)
 
+def convert_to_meters(radius: float, unit: str) -> float:
+    """Converts a radius value from a given unit to meters."""
+    unit = unit.lower()
+    if unit == 'm':
+        return radius
+    elif unit == 'km':
+        return radius * 1000.0
+    elif unit == 'mi':
+        # 1 mile = 1609.344 meters (Redis constant)
+        return radius * 1609.344
+    elif unit == 'ft':
+        # 1 foot = 0.3048 meters
+        return radius * 0.3048
+    else:
+        raise ValueError("Invalid unit specified")
+    
 def haversine_distance(lon1: float, lat1: float, lon2: float, lat2: float) -> float:
     """Calculates the distance between two points (lon, lat) using the Haversine formula."""
     # Convert degrees to radians
@@ -1519,6 +1535,65 @@ def execute_single_command(command: str, arguments: list, client: socket.socket)
         distance_bytes = distance_str.encode()
         
         response = b"$" + str(len(distance_bytes)).encode() + b"\r\n" + distance_bytes + b"\r\n"
+        return response
+
+    elif command == "GEOSEARCH":
+        # GEOSEARCH <key> FROMLONLAT <lon> <lat> BYRADIUS <radius> <unit>
+        if len(arguments) != 7:
+            return b"-ERR wrong number of arguments for 'GEOSEARCH' command\r\n"
+
+        key = arguments[0]
+        from_keyword = arguments[1].upper()
+        by_keyword = arguments[4].upper()
+        
+        if from_keyword != "FROMLONLAT" or by_keyword != "BYRADIUS":
+            return b"-ERR syntax error\r\n"
+
+        try:
+            center_lon = float(arguments[2])
+            center_lat = float(arguments[3])
+            radius = float(arguments[5])
+            unit = arguments[6]
+        except ValueError:
+            return b"-ERR invalid coordinates or radius\r\n"
+        
+        # 1. Convert radius to meters
+        try:
+            search_radius_m = convert_to_meters(radius, unit)
+        except ValueError:
+            return b"-ERR invalid unit specified\r\n"
+
+        # 2. Get all members in the GeoKey (Sorted Set)
+        with DATA_LOCK:
+            if key not in SORTED_SETS:
+                return b"*0\r\n"
+            members_scores = SORTED_SETS.get(key, {}).items()
+
+        matching_members = []
+
+        # 3. Iterate, decode coordinates, and check distance
+        for member_name, score_float in members_scores:
+            try:
+                # Decode score to get location coordinates: returns (longitude, latitude)
+                member_lon, member_lat = decode_geohash_to_coords(int(score_float))
+            except Exception:
+                # Skip member if decoding fails
+                continue
+
+            # Calculate distance between search center and member
+            distance = haversine_distance(center_lon, center_lat, member_lon, member_lat)
+            
+            # Check if the member is within the search radius (distance <= radius in meters)
+            if distance <= search_radius_m:
+                matching_members.append(member_name)
+
+        # 4. Return matching members as a RESP Array (order does not matter)
+        response_parts = []
+        for member in matching_members:
+            member_bytes = member.encode()
+            response_parts.append(b"$" + str(len(member_bytes)).encode() + b"\r\n" + member_bytes + b"\r\n")
+
+        response = b"*" + str(len(matching_members)).encode() + b"\r\n" + b"".join(response_parts)
         return response
 
     elif command == "QUIT":
