@@ -30,7 +30,7 @@ EMPTY_RDB_HEX = (
 )
 empty_rdb_bytes = bytes.fromhex(EMPTY_RDB_HEX)
 RDB_FILE_SIZE = 59
-RDB_HEADER = f"${RDB_FILE_SIZE}\r\n".encode()
+RDB_HEADER = b"${RDB_FILE_SIZE}\r\n"
 
 # Parse args like --dir /path --dbfilename file.rdb
 args = sys.argv[1:]
