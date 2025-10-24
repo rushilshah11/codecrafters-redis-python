@@ -145,7 +145,7 @@ GEOADD cities 2.3522 48.8566 "Paris"
 GEOADD cities 13.4050 52.5200 "Berlin"
 (integer) 1
 
-GEODIST cities Paris Berlin km
+GEODIST cities Paris Berlin
 "878.0253"
 
 GEOSEARCH cities FROMLONLAT 8.0 50.0 BYRADIUS 500 km
