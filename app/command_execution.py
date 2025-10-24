@@ -1292,10 +1292,12 @@ def execute_single_command(command: str, arguments: list, client: socket.socket)
             response = b"-ERR wrong number of arguments for 'GEOADD' command\r\n"
             return response
         
-        # 1. Extract and Validate coordinates
+        key = arguments[0]
         longitude_str = arguments[1]
         latitude_str = arguments[2]
+        member = arguments[3] # Extract the member name
         
+        # 1. Validate coordinates
         try:
             longitude = float(longitude_str)
             latitude = float(latitude_str)
@@ -1314,8 +1316,12 @@ def execute_single_command(command: str, arguments: list, client: socket.socket)
             error_msg = f"-ERR invalid longitude,latitude pair {longitude:.6f},{latitude:.6f}\r\n"
             return error_msg.encode()
             
-        # 4. Success: Return 1 (number of locations added)
-        response = b":1\r\n"
+        # 4. Persistence: Use ZADD-like functionality with hardcoded score "0"
+        # add_to_sorted_set returns 1 if a new element was added, or 0 if an existing member was updated.
+        num_new_elements = add_to_sorted_set(key, member, "0")
+        
+        # 5. Return the count as a RESP Integer
+        response = b":" + str(num_new_elements).encode() + b"\r\n"
         return response
     
     elif command == "QUIT":
