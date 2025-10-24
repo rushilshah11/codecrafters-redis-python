@@ -1362,7 +1362,7 @@ def execute_single_command(command: str, arguments: list, client: socket.socket)
         response = b":" + str(num_new_elements).encode() + b"\r\n"
         return response
    
-   elif command == "GEOPOS":
+    elif command == "GEOPOS":
         if len(arguments) < 2:
             response = b"-ERR wrong number of arguments for 'GEOPOS' command\r\n"
             return response
