@@ -1361,6 +1361,47 @@ def execute_single_command(command: str, arguments: list, client: socket.socket)
         # 5. Return the count as a RESP Integer
         response = b":" + str(num_new_elements).encode() + b"\r\n"
         return response
+   
+   elif command == "GEOPOS":
+        if len(arguments) < 2:
+            response = b"-ERR wrong number of arguments for 'GEOPOS' command\r\n"
+            return response
+        
+        key = arguments[0]
+        members = arguments[1:]
+        
+        final_response_parts = []
+        
+        # Hardcoded coordinates as requested for this stage
+        HARDCODED_LONGITUDE_STR = "0"
+        HARDCODED_LATITUDE_STR = "0"
+        
+        # Pre-encode for efficiency
+        lon_bytes = HARDCODED_LONGITUDE_STR.encode()
+        lat_bytes = HARDCODED_LATITUDE_STR.encode()
+        lon_resp = b"$" + str(len(lon_bytes)).encode() + b"\r\n" + lon_bytes + b"\r\n"
+        lat_resp = b"$" + str(len(lat_bytes)).encode() + b"\r\n" + lat_bytes + b"\r\n"
+        
+        # Full response for an existing member: *2\r\n<lon_resp><lat_resp>
+        MEMBER_FOUND_RESP = b"*2\r\n" + lon_resp + lat_resp
+        # Full response for a missing member: Null Array
+        MEMBER_MISSING_RESP = b"*-1\r\n"
+        
+        for member in members:
+            # Check if the member exists in the sorted set (Geo data is stored as ZSET)
+            score = get_zscore(key, member) 
+            
+            if score is None:
+                # Member or key does not exist: Null Array (*-1\r\n)
+                final_response_parts.append(MEMBER_MISSING_RESP)
+            else:
+                # Member exists: Array of [longitude, latitude] with hardcoded values
+                final_response_parts.append(MEMBER_FOUND_RESP)
+
+        # Wrap all individual responses in the final RESP array
+        response = b"*" + str(len(final_response_parts)).encode() + b"\r\n" + b"".join(final_response_parts)
+        return response
+
     elif command == "QUIT":
         response = b"+OK\r\n"
         # client.sendall(response
