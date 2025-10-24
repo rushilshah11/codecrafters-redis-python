@@ -34,9 +34,18 @@ def replica_command_listener(master_socket: socket.socket):
                     # Case 1: The RDB response. The command parser (for '*') will fail here.
                     # If data is not an array, it's the RDB payload (+FULLRESYNC, $LENGTH).
                     if buffer.startswith(b'+') or buffer.startswith(b'$'):
-                        print("Replica: Ignoring master handshake response (RDB payload).")
-                        buffer = b'' # Consume and discard the remaining buffer (RDB payload)
-                        break # Exit inner while loop
+                        next_command_start = buffer.find(b'*')
+
+                        if next_command_start != -1:
+                            print(f"Replica: Ignoring master handshake response/RDB payload ({next_command_start} bytes).")
+                            # Discard the handshake response/RDB content, keep the rest of the buffer
+                            buffer = buffer[next_command_start:]
+                            continue # Re-start the loop to parse the newly trimmed buffer
+                        else:
+                            # If no command is found, the rest is just RDB payload or incomplete data.
+                            print("Replica: Ignoring remaining master handshake response/RDB payload.")
+                            buffer = b'' # Consume and discard the remaining buffer
+                            break # Exit inner while loop       
                     
                     # Case 2: Incomplete command or other error.
                     print(f"Replica: Could not parse propagated command. Skipping remaining buffer: {buffer!r}")
