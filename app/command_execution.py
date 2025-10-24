@@ -157,9 +157,6 @@ def execute_single_command(command: str, arguments: list, client: socket.socket)
         rdb_header = b"$" + str(rdb_file_size).encode() + b"\r\n"
         rdb_response_bytes = rdb_header + rdb_binary_contents
 
-        global REPLICA_SOCKET
-        REPLICA_SOCKET = client
-
         # 5. Return the two parts separately as a tuple
         response = fullresync_response_bytes + rdb_response_bytes
         return response
@@ -1167,6 +1164,8 @@ def execute_single_command(command: str, arguments: list, client: socket.socket)
 def handle_command(command: str, arguments: list, client: socket.socket) -> bool:
     
     client_address = client.getpeername()
+    REPLICA_SOCKET = client
+
 
     if is_client_in_multi(client):
         # Commands that must be executed immediately, even inside MULTI: MULTI, EXEC, DISCARD (and WATCH/UNWATCH, but not implemented)
