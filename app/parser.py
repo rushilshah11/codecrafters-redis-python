@@ -1,22 +1,24 @@
+# app/parser.py
+
 # The parser code remains exactly as optimized earlier.
 
 # Example Input: data = b'*2\r\n$4\r\nECHO\r\n$3\r\nhey\r\n'
-def parsed_resp_array(data: bytes) -> list[str]:
+def parsed_resp_array(data: bytes) -> tuple[list[str], int]: # CHANGE: Return tuple (list, bytes_consumed)
     if not data or not data.startswith(b"*"):
-        # If data is empty or not an array, return empty list
-        return []
+        # If data is empty or not an array, return empty list and 0 consumed bytes
+        return [], 0 # CHANGE
     
     try:
         # Find the first CRLF to get the number of elements
         crlf_index = data.find(b"\r\n")
         if crlf_index == -1:
-            return []
+            return [], 0 # CHANGE
         
         # count_bytes is bytes between * and \r\n (b'2' for example)
         count_bytes = data[1:crlf_index]
         if not count_bytes:
              print("Parser Error: No element count found.")
-             return []
+             return [], 0 # CHANGE
 
         # decode to string and convert to int so now it is 2 for example
         num_elements_str = count_bytes.decode()
@@ -24,7 +26,7 @@ def parsed_resp_array(data: bytes) -> list[str]:
 
     except ValueError:
         print(f"Parser Error: Invalid element count value: {data[1:crlf_index]}")
-        return []
+        return [], 0 # CHANGE
     
 
     parsed_elements = []
@@ -38,7 +40,7 @@ def parsed_resp_array(data: bytes) -> list[str]:
         # Confirms data at index is b"$" (Bulk String marker)
         if index >= len(data) or data[index: index + 1] != b"$":
             print(f"Parser Error: Element {i} not starting with $ at index {index}.")
-            return []
+            return [], 0 # CHANGE
         
         index += 1 # Skip $
 
@@ -46,7 +48,7 @@ def parsed_resp_array(data: bytes) -> list[str]:
         crlf_index = data.find(b"\r\n", index)
         if crlf_index == -1:
             print(f"Parser Error: Element {i} missing length CRLF.")
-            return []
+            return [], 0 # CHANGE
 
         # length_bytes is bytes between $ and \r\n. This is '`4` for example'
         try:
@@ -55,7 +57,7 @@ def parsed_resp_array(data: bytes) -> list[str]:
             print(f"Parser: Element {i} length is {str_length}.")
         except ValueError:
             print(f"Parser Error: Element {i} invalid length value: {length_bytes}")
-            return []
+            return [], 0 # CHANGE
         
         index = crlf_index + 2 # Skip length and \r\n
 
@@ -63,7 +65,7 @@ def parsed_resp_array(data: bytes) -> list[str]:
         value_end_index = index + str_length
         if value_end_index + 2 > len(data): # +2 for trailing \r\n
             print(f"Parser Error: Element {i} incomplete data or missing trailing CRLF.")
-            return []
+            return [], 0 # CHANGE
         
         # Decode and append value
         value = data[index:value_end_index].decode()
@@ -72,4 +74,4 @@ def parsed_resp_array(data: bytes) -> list[str]:
         
         index = value_end_index + 2  # Skip value and \r\n
         
-    return parsed_elements
+    return parsed_elements, index # CHANGE: Return the final index (bytes consumed)

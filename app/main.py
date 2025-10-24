@@ -24,23 +24,39 @@ def replica_command_listener(master_socket: socket.socket):
 
             print(f"Replica: Received propagated data from master: {data!r}")
             
-            # Use the existing parser to turn the raw bytes into a command and arguments list
-            parsed_command = ce.parsed_resp_array(data)
+            # Use a buffer to handle concatenated commands
+            buffer = data
+            while buffer:
+                # Use the updated parser which returns (parsed_command, bytes_consumed)
+                parsed_command, bytes_consumed = ce.parsed_resp_array(buffer)
+                
+                if not parsed_command:
+                    # Case 1: The RDB response. The command parser (for '*') will fail here.
+                    # If data is not an array, it's the RDB payload (+FULLRESYNC, $LENGTH).
+                    if buffer.startswith(b'+') or buffer.startswith(b'$'):
+                        print("Replica: Ignoring master handshake response (RDB payload).")
+                        buffer = b'' # Consume and discard the remaining buffer (RDB payload)
+                        break # Exit inner while loop
+                    
+                    # Case 2: Incomplete command or other error.
+                    print(f"Replica: Could not parse propagated command. Skipping remaining buffer: {buffer!r}")
+                    break 
 
-            if not parsed_command:
-                print(f"Replica: Could not parse propagated command. Skipping.")
-                continue
+                command = parsed_command[0].upper()
+                arguments = parsed_command[1:]
+                
+                print(f"Command: Parsed command: {command}, Arguments: {arguments}")
+                
+                # Delegate to handle_command. The logic inside handle_command must suppress the response.
+                ce.handle_command(command, arguments, master_socket)
 
-            command = parsed_command[0].upper()
-            arguments = parsed_command[1:]
-            
-            # Delegate to handle_command. The logic inside handle_command must suppress the response.
-            ce.handle_command(command, arguments, master_socket)
+                # Move to the next command in the buffer
+                buffer = buffer[bytes_consumed:]
 
         except Exception as e:
             print(f"Replication Listener Error: {e}")
             break
-
+        
 def read_simple_string_response(sock: socket.socket, expected: bytes):
     """
     Reads a response from the master and verifies it against the expected simple string.

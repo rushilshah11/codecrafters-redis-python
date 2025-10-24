@@ -1265,7 +1265,7 @@ def handle_connection(client: socket.socket, client_address):
             print(f"Received: Raw bytes from {client_address}: {data!r}")
 
             # The raw bytes are immediately sent to the parser to be translated into a usable Python list.
-            parsed_command = parsed_resp_array(data)
+            parsed_command, _ = parsed_resp_array(data)
             
             if not parsed_command:
                 print(f"Received: Could not parse command from {client_address}. Closing connection.")
