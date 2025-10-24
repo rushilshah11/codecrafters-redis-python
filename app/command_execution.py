@@ -153,7 +153,7 @@ def execute_single_command(command: str, arguments: list, client: socket.socket)
                     # Wake up any waiting threads (the one executing WAIT)
                     WAIT_CONDITION.notify_all() 
 
-                return b"+OK\r\n"
+                return True
             except ValueError:
                 return b"-ERR invalid offset value in ACK\r\n"
         
