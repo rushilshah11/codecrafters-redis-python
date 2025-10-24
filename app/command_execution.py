@@ -132,26 +132,12 @@ def execute_single_command(command: str, arguments: list, client: socket.socket)
         return response
     
     elif command == "PSYNC": 
-        # The master receives PSYNC ? -1 from the replica.
-        # It must respond with +FULLRESYNC <REPL_ID> <OFFSET>\r\n encoded as a Simple String.
-        print(f"Sent: FULLRESYNC + RDB file for command '{command}' Waiting 10ms...")
-        time.sleep(0.01) # Wait 10ms to let the client receive the buffer
-        
-        # 1. Retrieve the master's replication ID and offset
-        repl_id = MASTER_REPLID
-        offset = MASTER_REPL_OFFSET # Which is currently 0
-        
-        # 2. Construct the FULLRESYNC response string
-        fullresync_response_str = f"+FULLRESYNC {repl_id} {offset}\r\n"
+
+        fullresync_response_str = f"+FULLRESYNC {MASTER_REPLID} {MASTER_REPL_OFFSET}\r\n"
         fullresync_response_bytes = fullresync_response_str.encode()
 
-        # 3. Construct the RDB file response: $<length_of_file>\r\n<binary_contents_of_file>
-        # The RDB_HEADER is: b"$59\r\n"
-        # The EMPTY_RDB_HEX is the 59 bytes of content.
         rdb_response_bytes = RDB_HEADER + empty_rdb_bytes
 
-        # 4. Combine the responses: FULLRESYNC + RDB file
-        # The single client.sendall() call in handle_command will send both.
         response = fullresync_response_bytes+rdb_response_bytes
         return response
     
