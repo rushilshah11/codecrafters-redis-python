@@ -56,7 +56,7 @@ def replica_command_listener(master_socket: socket.socket):
         except Exception as e:
             print(f"Replication Listener Error: {e}")
             break
-        
+
 def read_simple_string_response(sock: socket.socket, expected: bytes):
     """
     Reads a response from the master and verifies it against the expected simple string.
@@ -206,7 +206,7 @@ def main():
             
         else:
             i += 1
-
+    master_socket = None
     if is_replica:
         ce.SERVER_ROLE = "slave"
         ce.MASTER_HOST = master_host
