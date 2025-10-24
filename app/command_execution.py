@@ -139,7 +139,7 @@ def execute_single_command(command: str, arguments: list, client: socket.socket)
             global REPLICA_REPL_OFFSET # Access the global offset
             offset = REPLICA_REPL_OFFSET
             offset_str = str(offset)
-            
+
             # Construct the RESP Array: *3\r\n$8\r\nREPLCONF\r\n$3\r\nACK\r\n$1\r\n0\r\n
             response = (
                 b"*3\r\n" + # Array of 3 elements
@@ -1173,6 +1173,20 @@ def execute_single_command(command: str, arguments: list, client: socket.socket)
             response = b"$" + length_bytes + b"\r\n" + info_bytes + b"\r\n"
             return response
         
+    elif command == "WAIT": # <--- ADDED WAIT COMMAND
+        if len(arguments) != 2:
+            response = b"-ERR wrong number of arguments for 'WAIT' command\r\n"
+            return response
+
+        # In this initial stage, we immediately return the number of replicas
+        # that have connected to the master.
+        global REPLICA_SOCKETS
+        num_connected_replicas = len(REPLICA_SOCKETS)
+
+        # Return the count as a RESP Integer: :<count>\r\n
+        response = b":" + str(num_connected_replicas).encode() + b"\r\n"
+        return response
+    
     elif command == "QUIT":
         response = b"+OK\r\n"
         # client.sendall(response
