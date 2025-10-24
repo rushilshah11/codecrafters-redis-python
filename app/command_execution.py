@@ -54,6 +54,50 @@ def encode_geohash(latitude: float, longitude: float) -> int:
     # 3. Interleave bits
     return interleave(lat_int, lon_int)
 
+def compact_int64_to_int32(v: int) -> int:
+    """
+    Compact a 64-bit integer with interleaved bits back to a 32-bit integer.
+    """
+    v = v & 0x5555555555555555
+    v = (v | (v >> 1)) & 0x3333333333333333
+    v = (v | (v >> 2)) & 0x0F0F0F0F0F0F0F0F
+    v = (v | (v >> 4)) & 0x00FF00FF00FF00FF
+    v = (v | (v >> 8)) & 0x0000FFFF0000FFFF
+    v = (v | (v >> 16)) & 0x00000000FFFFFFFF
+    return v
+
+def convert_grid_numbers_to_coordinates(grid_latitude_number: int, grid_longitude_number: int) -> tuple[float, float]:
+    """Converts grid numbers back to (longitude, latitude) coordinates (center of grid cell)."""
+    # 2**26
+    power_26 = 1 << 26 
+    
+    # Calculate the grid boundaries
+    grid_latitude_min = MIN_LATITUDE + LATITUDE_RANGE * (grid_latitude_number / power_26)
+    grid_latitude_max = MIN_LATITUDE + LATITUDE_RANGE * ((grid_latitude_number + 1) / power_26)
+    grid_longitude_min = MIN_LONGITUDE + LONGITUDE_RANGE * (grid_longitude_number / power_26)
+    grid_longitude_max = MIN_LONGITUDE + LONGITUDE_RANGE * ((grid_longitude_number + 1) / power_26)
+    
+    # Calculate the center point of the grid cell
+    latitude = (grid_latitude_min + grid_latitude_max) / 2
+    longitude = (grid_longitude_min + grid_longitude_max) / 2
+    
+    # GEOPOS returns Longitude then Latitude
+    return (longitude, latitude) 
+
+def decode_geohash_to_coords(geo_code: int) -> tuple[float, float]:
+    """
+    Decodes geo code (WGS84) to tuple of (longitude, latitude)
+    """
+    # Align bits of both latitude and longitude to take even-numbered position
+    y = geo_code >> 1
+    x = geo_code
+    
+    # Compact bits back to 32-bit ints
+    grid_latitude_number = compact_int64_to_int32(x)
+    grid_longitude_number = compact_int64_to_int32(y)
+    
+    return convert_grid_numbers_to_coordinates(grid_latitude_number, grid_longitude_number)
+
 # Default Redis config
 DIR = "."
 DB_FILENAME = "dump.rdb"
@@ -1372,36 +1416,44 @@ def execute_single_command(command: str, arguments: list, client: socket.socket)
         
         final_response_parts = []
         
-        # Hardcoded coordinates as requested for this stage
-        HARDCODED_LONGITUDE_STR = "0"
-        HARDCODED_LATITUDE_STR = "0"
-        
-        # Pre-encode for efficiency
-        lon_bytes = HARDCODED_LONGITUDE_STR.encode()
-        lat_bytes = HARDCODED_LATITUDE_STR.encode()
-        lon_resp = b"$" + str(len(lon_bytes)).encode() + b"\r\n" + lon_bytes + b"\r\n"
-        lat_resp = b"$" + str(len(lat_bytes)).encode() + b"\r\n" + lat_bytes + b"\r\n"
-        
-        # Full response for an existing member: *2\r\n<lon_resp><lat_resp>
-        MEMBER_FOUND_RESP = b"*2\r\n" + lon_resp + lat_resp
-        # Full response for a missing member: Null Array
-        MEMBER_MISSING_RESP = b"*-1\r\n"
-        
         for member in members:
-            # Check if the member exists in the sorted set (Geo data is stored as ZSET)
-            score = get_zscore(key, member) 
+            # 1. Retrieve the score (stored as float in Redis)
+            score_float = get_zscore(key, member) 
             
-            if score is None:
+            if score_float is None:
                 # Member or key does not exist: Null Array (*-1\r\n)
-                final_response_parts.append(MEMBER_MISSING_RESP)
-            else:
-                # Member exists: Array of [longitude, latitude] with hardcoded values
-                final_response_parts.append(MEMBER_FOUND_RESP)
+                final_response_parts.append(b"*-1\r\n")
+                continue
+                
+            # 2. Convert score (float) to integer for bitwise decoding
+            score_int = int(score_float)
+            
+            # 3. Decode the geohash score
+            try:
+                # Returns (longitude, latitude)
+                longitude, latitude = decode_geohash_to_coords(score_int)
+            except Exception:
+                # Should not happen with valid GeoHash scores, but defensively handle error
+                final_response_parts.append(b"*-1\r\n")
+                continue
 
-        # Wrap all individual responses in the final RESP array
+            # 4. Format coordinates as RESP Bulk Strings (with high precision)
+            lon_str = f"{longitude:.15f}"
+            lat_str = f"{latitude:.15f}"
+            
+            # Format as Bulk Strings
+            lon_bytes = lon_str.encode()
+            lat_bytes = lat_str.encode()
+            lon_resp = b"$" + str(len(lon_bytes)).encode() + b"\r\n" + lon_bytes + b"\r\n"
+            lat_resp = b"$" + str(len(lat_bytes)).encode() + b"\r\n" + lat_bytes + b"\r\n"
+            
+            # Final response for an existing member: *2\r\n<lon_resp><lat_resp>
+            member_resp = b"*2\r\n" + lon_resp + lat_resp
+            final_response_parts.append(member_resp)
+
+        # 5. Wrap all individual responses in the final RESP array
         response = b"*" + str(len(final_response_parts)).encode() + b"\r\n" + b"".join(final_response_parts)
         return response
-
     elif command == "QUIT":
         response = b"+OK\r\n"
         # client.sendall(response
