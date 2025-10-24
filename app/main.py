@@ -10,6 +10,37 @@ PING_COMMAND_RESP = b"*1\r\n$4\r\nPING\r\n"
 REPLCONF_CAPA_PSYNC2 = b"*3\r\n$8\r\nREPLCONF\r\n$4\r\ncapa\r\n$6\r\npsync2\r\n"
 PSYNC_COMMAND_RESP = b"*3\r\n$5\r\nPSYNC\r\n$1\r\n?\r\n$2\r\n-1\r\n"
 
+# In main.py, define this new function after connect_to_master or at the top level
+def replica_command_listener(master_socket: socket.socket):
+    """Listens on the master-replica connection for propagated commands."""
+    while True:
+        try:
+            # Propagated commands are RESP arrays.
+            # We pass the master_socket as the 'client' to handle_command.
+            data = master_socket.recv(4096)
+            if not data:
+                print("Replication: Master closed connection.")
+                break
+
+            print(f"Replica: Received propagated data from master: {data!r}")
+            
+            # Use the existing parser to turn the raw bytes into a command and arguments list
+            parsed_command = ce.parsed_resp_array(data)
+
+            if not parsed_command:
+                print(f"Replica: Could not parse propagated command. Skipping.")
+                continue
+
+            command = parsed_command[0].upper()
+            arguments = parsed_command[1:]
+            
+            # Delegate to handle_command. The logic inside handle_command must suppress the response.
+            ce.handle_command(command, arguments, master_socket)
+
+        except Exception as e:
+            print(f"Replication Listener Error: {e}")
+            break
+
 def read_simple_string_response(sock: socket.socket, expected: bytes):
     """
     Reads a response from the master and verifies it against the expected simple string.
@@ -28,7 +59,7 @@ def read_simple_string_response(sock: socket.socket, expected: bytes):
     print(f"Replication Error: Received response {response!r} did not match expected {expected!r}")
     return False
 
-def connect_to_master(listening_port: int):
+def connect_to_master(listening_port: int) -> socket.socket | None:
     """
     Called when the server is a replica. It connects to the master and performs 
     the first handshake step (PING).
@@ -92,6 +123,8 @@ def connect_to_master(listening_port: int):
         
         # Store the socket for later use
         ce.MASTER_SOCKET = master_socket
+
+        return master_socket
         
     except Exception as e:
         print(f"Replication Error: Could not connect to master or send PING: {e}")
@@ -163,7 +196,12 @@ def main():
         ce.MASTER_HOST = master_host
         ce.MASTER_PORT = master_port
 
-        connect_to_master(port)
+        master_socket = connect_to_master(port)
+
+    # If connect_to_master succeeded, start the listener thread
+    if master_socket:
+        # Start listener thread (daemon=True ensures thread exits when main program exits)
+        threading.Thread(target=replica_command_listener, args=(master_socket,), daemon=True).start()
     # ----------------------------------------
 
     try:

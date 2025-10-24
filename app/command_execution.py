@@ -1170,9 +1170,9 @@ def handle_command(command: str, arguments: list, client: socket.socket) -> bool
     
     client_address = client.getpeername()
 
-
+    # 1. TRANSACTION QUEUEING CHECK
     if is_client_in_multi(client):
-        # Commands that must be executed immediately, even inside MULTI: MULTI, EXEC, DISCARD (and WATCH/UNWATCH, but not implemented)
+        # Commands that must be executed immediately, even inside MULTI: MULTI, EXEC, DISCARD
         TRANSACTION_CONTROL_COMMANDS = {"EXEC", "MULTI", "DISCARD"} 
         
         if command not in TRANSACTION_CONTROL_COMMANDS:
@@ -1183,57 +1183,68 @@ def handle_command(command: str, arguments: list, client: socket.socket) -> bool
             print(f"Sent: QUEUED response for command '{command}' to {client_address}.")
             return True # Signal that the command was handled (queued)
         
+    # 2. COMMAND EXECUTION
     response_or_signal = execute_single_command(command, arguments, client)
-    # --- PROPAGATION LOGIC ADDED HERE ---
+
+    # 3. PROPAGATION LOGIC (MASTER ROLE)
     is_write_command = command in WRITE_COMMANDS
     global REPLICA_SOCKETS 
-    is_master_with_replica = SERVER_ROLE == "master" and REPLICA_SOCKETS
+    is_master_with_replicas = SERVER_ROLE == "master" and REPLICA_SOCKETS
     
-    if is_master_with_replica and is_write_command:
+    if is_master_with_replicas and is_write_command:
         # Propagate only if the command executed successfully (returned bytes, not an error)
         if isinstance(response_or_signal, bytes) and not response_or_signal.startswith(b'-'):
             
             # Reconstruct the raw RESP array
             resp_array_to_send = _serialize_command_to_resp_array(command, arguments)
 
-            # 2. Iterate and send to ALL replicas
-            # Iterate over a copy of the list (list(...)) to safely remove elements if send fails
+            # Iterate and send to ALL replicas
             for replica_socket in list(REPLICA_SOCKETS): 
                 try:
                     replica_socket.sendall(resp_array_to_send)
-                    # Optional logging for confirmation
                     print(f"Propagation: Sent command '{command}' to replica {replica_socket.getpeername()}.") 
                 except Exception as e:
-                    # If sending fails (replica disconnected), remove the socket from the list
                     print(f"Propagation Error: Could not send command to replica {replica_socket.getpeername()}: {e}. Removing dead replica.")
                     try:
                         REPLICA_SOCKETS.remove(replica_socket)
                     except ValueError:
-                        pass # Already removed by another thread or disconnected client cleanup
+                        pass
 
-    # 4. SEND THE RESPONSE
-    # Check if the response is a bytes object (and not None, False, or True)
-    if isinstance(response_or_signal, bytes):
-        client.sendall(response_or_signal)
-        if command == "PSYNC":
-            print(f"Sent: FULLRESYNC + RDB file for command '{command}' to {client_address}. Waiting 10ms...")
-            time.sleep(0.05) # Wait 10ms (This should resolve the incomplete read)
-        return True
+    # 4. SEND THE RESPONSE (CONSOLIDATED LOGIC)
     
-    # If response_or_signal is None (e.g., successful XREAD block), we return True (success) 
-    # without sending anything, as the other thread already sent the response.
+    # 4a. Check for internal signals (None means response was sent by another thread, e.g., XREAD BLOCK)
     if response_or_signal is None:
         print(f"Execution signal: Command '{command}' successfully processed (response sent by another thread or not required).")
         return True
-    
-    # Otherwise, send the response
-    if response_or_signal is not False: # Ensure it's not the signal from QUIT (which we handled above)
+
+    # 4b. Handle response only if it's a bytes object (a valid RESP response)
+    if isinstance(response_or_signal, bytes):
+        global SERVER_ROLE, MASTER_SOCKET
+        
+        # --- RESPONSE SUPPRESSION CHECK (REPLICA ROLE) ---
+        # If we are a slave AND the command came on the master's replication connection, suppress the response.
+        if SERVER_ROLE == "slave" and client == MASTER_SOCKET:
+            print(f"Replica: Executed propagated command '{command}' silently.")
+            return True # Suppressed successfully, DO NOT send response.
+
+        # --- REGULAR CLIENT RESPONSE ---
+        client_address = client.getpeername()
         client.sendall(response_or_signal)
+        
+        # Special case handling for PSYNC response (Master role)
+        if command == "PSYNC":
+            print(f"Sent: FULLRESYNC + RDB file for command '{command}' to {client_address}. Waiting 10ms...")
+            time.sleep(0.05)
+        
+        # Log success and return True
         print(f"Sent: Response for command '{command}' to {client_address}.")
         return True
-        
-    return True # Should only be hit if command was executed normally
     
+    # 4c. Final return for commands that succeeded but didn't produce a bytes response
+    if response_or_signal is not False: 
+        return True
+            
+    return True
 def handle_connection(client: socket.socket, client_address):
     """
     This function is called for each new client connection.
