@@ -95,6 +95,9 @@ def decode_geohash_to_coords(geo_code: int) -> tuple[float, float]:
     # Compact bits back to 32-bit ints
     grid_latitude_number = compact_int64_to_int32(x)
     grid_longitude_number = compact_int64_to_int32(y)
+
+    normalized_longitude = grid_longitude_number + 0.5
+    normalized_latitude = grid_latitude_number + 0.5
     
     return convert_grid_numbers_to_coordinates(grid_latitude_number, grid_longitude_number)
 
