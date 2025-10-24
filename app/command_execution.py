@@ -24,13 +24,11 @@ MASTER_REPL_OFFSET = 0 # Starts at 0
 MASTER_SOCKET = None
 
 # Define the 59-byte empty RDB file content (hexadecimal)
-EMPTY_RDB_HEX = (
-    "524544495330303132fa0972656469732d76657205372e322e30fa08637265617465646279"
-    "c04e3c0000"
-)
-empty_rdb_bytes = bytes.fromhex(EMPTY_RDB_HEX)
-RDB_FILE_SIZE = 59
-RDB_HEADER = b"$59\r\n"
+empty_rdb_hex = "524544495330303131fa0972656469732d76657205372e322e30fa0a72656469732d62697473c040fa056374696d65c26d08bc65fa08757365642d6d656dc2b0c41000fa08616f662d62617365c000fff06e3bfec0ff5aa2"
+
+# empty_rdb_bytes = bytes.fromhex(EMPTY_RDB_HEX)
+# RDB_FILE_SIZE = 59
+# RDB_HEADER = b"$59\r\n"
 
 # Parse args like --dir /path --dbfilename file.rdb
 args = sys.argv[1:]
@@ -133,12 +131,12 @@ def execute_single_command(command: str, arguments: list, client: socket.socket)
     
     elif command == "PSYNC": 
 
-        fullresync_response_str = f"+FULLRESYNC {MASTER_REPLID} {MASTER_REPL_OFFSET}\r\n"
-        fullresync_response_bytes = fullresync_response_str.encode()
+        # fullresync_response_str = f"+FULLRESYNC {MASTER_REPLID} {MASTER_REPL_OFFSET}\r\n"
+        # fullresync_response_bytes = fullresync_response_str.encode()
 
-        rdb_response_bytes = RDB_HEADER + empty_rdb_bytes
+        # rdb_response_bytes = RDB_HEADER + empty_rdb_bytes
 
-        response = fullresync_response_bytes+rdb_response_bytes
+        response = b"$" + str(len(bytes.fromhex(empty_rdb_hex))).encode('utf-8') + b"\r\n" + bytes.fromhex(empty_rdb_hex)
         return response
     
     elif command == "ECHO":
