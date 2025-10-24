@@ -1191,67 +1191,68 @@ def execute_single_command(command: str, arguments: list, client: socket.socket)
         except ValueError:
             response = b"-ERR numreplicas or timeout is not an integer\r\n"
             return response
-        
-        global MASTER_REPL_OFFSET
-        global REPLICA_SOCKETS
-        
+
+
         target_offset = MASTER_REPL_OFFSET
         timeout_s = timeout_ms / 1000.0
         start_time = time.time()
 
-        # Optimization: If target is 0 or required replicas is 0, return immediately.
-        if target_offset == 0 or num_replicas_required == 0:
+        # Optimization: If target is 0, required replicas is 0, or no replicas are connected, return immediately.
+        if target_offset == 0 or num_replicas_required == 0 or not REPLICA_SOCKETS:
             num_connected = len(REPLICA_SOCKETS)
             return b":" + str(num_connected).encode() + b"\r\n"
 
         # The master must send GETACK to all replicas to get their current offset
         getack_command = b"*3\r\n$8\r\nREPLCONF\r\n$6\r\nGETACK\r\n$1\r\n*\r\n"
         
+        # 1. Initial send of GETACK to ALL replicas (Poll phase)
+        replicas_to_remove = []
+        for replica_socket in list(REPLICA_SOCKETS):
+            try:
+                replica_socket.sendall(getack_command)
+            except Exception:
+                # Mark failed sockets for removal
+                replicas_to_remove.append(replica_socket)
+
+        # Clean up dead replicas
+        for dead_socket in replicas_to_remove:
+            if dead_socket in REPLICA_SOCKETS:
+                 REPLICA_SOCKETS.remove(dead_socket)
+                 REPLICA_ACK_OFFSETS.pop(dead_socket, None) # Also remove from ACK tracking
+
+
         final_acknowledged_count = 0
-        replica_sockets_to_poll = list(REPLICA_SOCKETS)
 
         with WAIT_LOCK:
             
-            # Initial poll/wait loop
-            while time.time() - start_time < timeout_s:
+            # 2. Polling and waiting loop
+            while True:
                 
-                # 1. Send GETACK to all replicas
-                for replica_socket in replica_sockets_to_poll:
-                    try:
-                        replica_socket.sendall(getack_command)
-                        # We don't wait for the reply here; the reply comes back on the master's main loop 
-                        # and updates REPLICA_ACK_OFFSETS in another thread.
-                    except Exception as e:
-                        print(f"WAIT: Failed to send GETACK to replica: {e}. Removing dead replica.")
-                        # Remove the dead socket from the main list so it's not polled again.
-                        if replica_socket in REPLICA_SOCKETS:
-                             REPLICA_SOCKETS.remove(replica_socket)
-                        # Remove from poll list and continue
-                        replica_sockets_to_poll = list(REPLICA_SOCKETS)
-                        break # Restart inner loop after modifying the list
+                # Check for timeout first
+                timeout_remaining = timeout_s - (time.time() - start_time)
+                if timeout_remaining <= 0:
+                    # Timeout expired
+                    break
 
-                # 2. Check current acknowledged count
+                # Check current acknowledged count
                 acknowledged_count = 0
                 for replica_socket in REPLICA_SOCKETS:
-                    ack_offset = REPLICA_ACK_OFFSETS.get(replica_socket, 0)
+                    # Use a default of 0 if replica hasn't ACKed yet
+                    ack_offset = REPLICA_ACK_OFFSETS.get(replica_socket, 0) 
                     if ack_offset >= target_offset:
                         acknowledged_count += 1
                 
-                # 3. Check completion condition
+                # Check completion condition
                 if acknowledged_count >= num_replicas_required:
                     final_acknowledged_count = acknowledged_count
                     break
 
-                # 4. Wait for notification or timeout
-                timeout_remaining = timeout_s - (time.time() - start_time)
-                if timeout_remaining <= 0:
-                    # Timeout expired, final count will be calculated below
-                    break
-                
-                # Wait on the condition, which will be notified by REPLCONF ACK processing.
+                # Wait for notification or remaining timeout
                 WAIT_CONDITION.wait(timeout_remaining)
-
+            
             # If the loop finished due to timeout or early completion, calculate the final count
+            # Use the already calculated final_acknowledged_count if it met the requirement.
+            # If it broke due to timeout, we must check the last known counts.
             if final_acknowledged_count == 0:
                 for replica_socket in REPLICA_SOCKETS:
                     ack_offset = REPLICA_ACK_OFFSETS.get(replica_socket, 0)
