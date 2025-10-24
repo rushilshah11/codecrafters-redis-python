@@ -138,9 +138,25 @@ def execute_single_command(command: str, arguments: list, client: socket.socket)
     elif command == "REPLCONF": 
         # Check for REPLCONF GETACK * (Replica logic)
         if len(arguments) == 2 and arguments[0].upper() == "GETACK" and arguments[1] == "*":
-            # ... (Replica logic for REPLCONF GETACK *)
-            # ...
-            return response
+            try:
+                # REPLCONF ACK <offset> - use the replica's current offset
+                global REPLICA_REPL_OFFSET # Access the global offset
+                offset = REPLICA_REPL_OFFSET
+                offset_str = str(offset)
+                
+                # Construct the RESP Array: *3\r\n$8\r\nREPLCONF\r\n$3\r\nACK\r\n$LEN\r\n<OFFSET>\r\n
+                response = (
+                    b"*3\r\n" + # Array of 3 elements
+                    b"$8\r\nREPLCONF\r\n" +
+                    b"$3\r\nACK\r\n" +
+                    b"$" + str(len(offset_str)).encode() + b"\r\n" +
+                    offset_str.encode() + b"\r\n"
+                )
+                return response
+            except Exception as e:
+                print(f"Error building REPLCONF ACK response: {e}")
+                # Return an error message to prevent unexpected silent failure
+                return b"-ERR Internal error building ACK\r\n"
         
         # ADDED: Check for REPLCONF ACK <offset> (Master receives from replica)
         elif len(arguments) == 2 and arguments[0].upper() == "ACK":
