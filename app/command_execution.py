@@ -72,10 +72,10 @@ def convert_grid_numbers_to_coordinates(grid_latitude_number: int, grid_longitud
     power_26 = 1 << 26 
     
     # Calculate the grid boundaries
-    grid_latitude_min = MIN_LATITUDE + LATITUDE_RANGE * (grid_latitude_number / power_26)
-    grid_latitude_max = MIN_LATITUDE + LATITUDE_RANGE * ((grid_latitude_number + 1) / power_26)
-    grid_longitude_min = MIN_LONGITUDE + LONGITUDE_RANGE * (grid_longitude_number / power_26)
-    grid_longitude_max = MIN_LONGITUDE + LONGITUDE_RANGE * ((grid_longitude_number + 1) / power_26)
+    grid_latitude_min = MIN_LAT + LATITUDE_RANGE * (grid_latitude_number / power_26)
+    grid_latitude_max = MIN_LAT + LATITUDE_RANGE * ((grid_latitude_number + 1) / power_26)
+    grid_longitude_min = MIN_LON + LONGITUDE_RANGE * (grid_longitude_number / power_26)
+    grid_longitude_max = MIN_LON + LONGITUDE_RANGE * ((grid_longitude_number + 1) / power_26)
     
     # Calculate the center point of the grid cell
     latitude = (grid_latitude_min + grid_latitude_max) / 2
@@ -96,17 +96,10 @@ def decode_geohash_to_coords(geo_code: int) -> tuple[float, float]:
     grid_latitude_number = compact_int64_to_int32(x)
     grid_longitude_number = compact_int64_to_int32(y)
 
-    normalized_longitude = grid_longitude_number + 0.5
-    normalized_latitude = grid_latitude_number + 0.5
+    # normalized_longitude = grid_longitude_number + 0.5
+    # normalized_latitude = grid_latitude_number + 0.5
     
-    power_26 = 1 << 26 
-
-    # Reverse normalization formula: coord = (N + 0.5) / 2^26 * RANGE + MIN
-    longitude = (normalized_longitude / power_26) * LONGITUDE_RANGE + MIN_LONGITUDE
-    latitude = (normalized_latitude / power_26) * LATITUDE_RANGE + MIN_LATITUDE
-    
-    # GEOPOS returns Longitude then Latitude
-    return (longitude, latitude)
+    return convert_grid_numbers_to_coordinates(grid_latitude_number, grid_longitude_number)
 
 # Default Redis config
 DIR = "."
