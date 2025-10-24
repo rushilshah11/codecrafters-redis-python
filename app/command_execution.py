@@ -1196,12 +1196,20 @@ def handle_command(command: str, arguments: list, client: socket.socket) -> bool
             # Reconstruct the raw RESP array
             resp_array_to_send = _serialize_command_to_resp_array(command, arguments)
 
-            # Propagate to the replica
-            try:
-                REPLICA_SOCKET.sendall(resp_array_to_send)
-                print(f"Propagation: Sent command '{command}' to replica.")
-            except Exception as e:
-                print(f"Propagation Error: Could not send command to replica: {e}")
+            # 2. Iterate and send to ALL replicas
+            # Iterate over a copy of the list (list(...)) to safely remove elements if send fails
+            for replica_socket in list(REPLICA_SOCKETS): 
+                try:
+                    replica_socket.sendall(resp_array_to_send)
+                    # Optional logging for confirmation
+                    print(f"Propagation: Sent command '{command}' to replica {replica_socket.getpeername()}.") 
+                except Exception as e:
+                    # If sending fails (replica disconnected), remove the socket from the list
+                    print(f"Propagation Error: Could not send command to replica {replica_socket.getpeername()}: {e}. Removing dead replica.")
+                    try:
+                        REPLICA_SOCKETS.remove(replica_socket)
+                    except ValueError:
+                        pass # Already removed by another thread or disconnected client cleanup
 
     # 4. SEND THE RESPONSE
     # Check if the response is a bytes object (and not None, False, or True)
