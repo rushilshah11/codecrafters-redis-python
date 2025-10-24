@@ -1434,15 +1434,12 @@ def execute_single_command(command: str, arguments: list, client: socket.socket)
                 final_response_parts.append(b"*-1\r\n")
                 continue
 
-            # 4. Format coordinates as RESP Bulk Strings (with high precision and minimal trailing zeros)
+            # 4. Format coordinates as RESP Bulk Strings (Reverted to robust float string conversion)
             
-            # Format to 15 decimal places to maintain precision, then remove trailing zeros/decimal point to match Redis output style
-            lon_str = f"{longitude:.15f}".rstrip('0').rstrip('.')
-            lat_str = f"{latitude:.15f}".rstrip('0').rstrip('.')
-
-            # Ensure '0' is not stripped to an empty string if the value is 0.0
-            if lon_str == "": lon_str = "0"
-            if lat_str == "": lat_str = "0"
+            # Use Python's default high-precision float string representation (str()),
+            # which is the most reliable way to maintain precision and avoid fragility.
+            lon_str = str(longitude)
+            lat_str = str(latitude)
             
             # Format as Bulk Strings
             lon_bytes = lon_str.encode()
