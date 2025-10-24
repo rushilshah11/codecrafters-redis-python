@@ -13,6 +13,11 @@ from app.datastore import BLOCKING_CLIENTS, BLOCKING_CLIENTS_LOCK, BLOCKING_STRE
 
 WRITE_COMMANDS = {"SET", "LPUSH", "RPUSH", "LPOP", "ZADD", "ZREM", "XADD", "INCR", "GEOADD"}
 
+MIN_LON = -180.0
+MAX_LON = 180.0
+MIN_LAT = -85.05112878
+MAX_LAT = 85.05112878
+
 # Default Redis config
 DIR = "."
 DB_FILENAME = "dump.rdb"
@@ -1283,15 +1288,33 @@ def execute_single_command(command: str, arguments: list, client: socket.socket)
     
     elif command == "GEOADD":
         # GEOADD <key> <longitude> <latitude> <member>
-        # Arguments needed: key, longitude, latitude, member (4 arguments)
-        # We expect at least the key, longitude, latitude, and one member.
-        # Since the example is simple, we check for a minimum of 4 arguments.
         if len(arguments) < 4:
             response = b"-ERR wrong number of arguments for 'GEOADD' command\r\n"
             return response
         
-        # For this stage, the requirement is to always return 1, encoded as a RESP Integer.
-        # :1\r\n
+        # 1. Extract and Validate coordinates
+        longitude_str = arguments[1]
+        latitude_str = arguments[2]
+        
+        try:
+            longitude = float(longitude_str)
+            latitude = float(latitude_str)
+        except ValueError:
+            # If coordinates are not valid numbers
+            error_msg = f"-ERR value is not a valid float\r\n"
+            return error_msg.encode()
+
+        # 2. Check Longitude range [-180, 180]
+        if not (MIN_LON <= longitude <= MAX_LON):
+            error_msg = f"-ERR invalid longitude,latitude pair {longitude:.6f},{latitude:.6f}\r\n"
+            return error_msg.encode()
+
+        # 3. Check Latitude range [-85.05112878, 85.05112878]
+        if not (MIN_LAT <= latitude <= MAX_LAT):
+            error_msg = f"-ERR invalid longitude,latitude pair {longitude:.6f},{latitude:.6f}\r\n"
+            return error_msg.encode()
+            
+        # 4. Success: Return 1 (number of locations added)
         response = b":1\r\n"
         return response
     
