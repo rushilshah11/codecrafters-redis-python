@@ -7,7 +7,7 @@ import time
 import argparse
 from xmlrpc import client
 from app.parser import parsed_resp_array
-from app.datastore import BLOCKING_CLIENTS, BLOCKING_CLIENTS_LOCK, BLOCKING_STREAMS, BLOCKING_STREAMS_LOCK, CHANNEL_SUBSCRIBERS, DATA_LOCK, DATA_STORE, SORTED_SETS, STREAMS, _serialize_command_to_resp_array, add_to_sorted_set, cleanup_blocked_client, enqueue_client_command, get_client_queued_commands, get_sorted_set_range, get_sorted_set_rank, get_stream_max_id, get_zscore, increment_key_value, is_client_in_multi, is_client_subscribed, load_rdb_to_datastore, lrange_rtn, num_client_subscriptions, prepend_to_list, remove_elements_from_list, remove_from_sorted_set, set_client_in_multi, size_of_list, append_to_list, existing_list, get_data_entry, set_list, set_string, subscribe, unsubscribe, xadd, xrange, xread
+from app.datastore import BLOCKING_CLIENTS, BLOCKING_CLIENTS_LOCK, BLOCKING_STREAMS, BLOCKING_STREAMS_LOCK, CHANNEL_SUBSCRIBERS, DATA_LOCK, DATA_STORE, SORTED_SETS, STREAMS, WAIT_CONDITION, WAIT_LOCK, _serialize_command_to_resp_array, add_to_sorted_set, cleanup_blocked_client, enqueue_client_command, get_client_queued_commands, get_sorted_set_range, get_sorted_set_rank, get_stream_max_id, get_zscore, increment_key_value, is_client_in_multi, is_client_subscribed, load_rdb_to_datastore, lrange_rtn, num_client_subscriptions, prepend_to_list, remove_elements_from_list, remove_from_sorted_set, set_client_in_multi, size_of_list, append_to_list, existing_list, get_data_entry, set_list, set_string, subscribe, unsubscribe, xadd, xrange, xread, REPLICA_ACK_OFFSETS
 
 # --------------------------------------------------------------------------------
 
@@ -134,21 +134,28 @@ def execute_single_command(command: str, arguments: list, client: socket.socket)
             return response
 
     elif command == "REPLCONF": 
+        # Check for REPLCONF GETACK * (Replica logic)
         if len(arguments) == 2 and arguments[0].upper() == "GETACK" and arguments[1] == "*":
-            # REPLCONF ACK <offset> - use the replica's current offset
-            global REPLICA_REPL_OFFSET # Access the global offset
-            offset = REPLICA_REPL_OFFSET
-            offset_str = str(offset)
-
-            # Construct the RESP Array: *3\r\n$8\r\nREPLCONF\r\n$3\r\nACK\r\n$1\r\n0\r\n
-            response = (
-                b"*3\r\n" + # Array of 3 elements
-                b"$8\r\nREPLCONF\r\n" +
-                b"$3\r\nACK\r\n" +
-                b"$" + str(len(offset_str)).encode() + b"\r\n" +
-                offset_str.encode() + b"\r\n"
-            )
+            # ... (Replica logic for REPLCONF GETACK *)
+            # ...
             return response
+        
+        # ADDED: Check for REPLCONF ACK <offset> (Master receives from replica)
+        elif len(arguments) == 2 and arguments[0].upper() == "ACK":
+            global REPLICA_ACK_OFFSETS
+            
+            try:
+                replica_socket = client
+                ack_offset = int(arguments[1])
+
+                with WAIT_LOCK: # Acquire lock to update shared state
+                    REPLICA_ACK_OFFSETS[replica_socket] = ack_offset
+                    # Wake up any waiting threads (the one executing WAIT)
+                    WAIT_CONDITION.notify_all() 
+
+                return b"+OK\r\n"
+            except ValueError:
+                return b"-ERR invalid offset value in ACK\r\n"
         
         # Handshake REPLCONF commands (listening-port <PORT> and capa psync2)
         response = b"+OK\r\n"
@@ -1173,17 +1180,83 @@ def execute_single_command(command: str, arguments: list, client: socket.socket)
             response = b"$" + length_bytes + b"\r\n" + info_bytes + b"\r\n"
             return response
         
-    elif command == "WAIT": # <--- ADDED WAIT COMMAND
+    elif command == "WAIT":
         if len(arguments) != 2:
             response = b"-ERR wrong number of arguments for 'WAIT' command\r\n"
             return response
 
-        # In this initial stage, we immediately return the number of replicas
-        # that have connected to the master.
-        num_connected_replicas = len(REPLICA_SOCKETS)
+        try:
+            num_replicas_required = int(arguments[0])
+            timeout_ms = int(arguments[1])
+        except ValueError:
+            response = b"-ERR numreplicas or timeout is not an integer\r\n"
+            return response
+        
+        target_offset = MASTER_REPL_OFFSET
+        timeout_s = timeout_ms / 1000.0
+        start_time = time.time()
 
-        # Return the count as a RESP Integer: :<count>\r\n
-        response = b":" + str(num_connected_replicas).encode() + b"\r\n"
+        # Optimization: If target is 0 or required replicas is 0, return immediately.
+        if target_offset == 0 or num_replicas_required == 0:
+            num_connected = len(REPLICA_SOCKETS)
+            return b":" + str(num_connected).encode() + b"\r\n"
+
+        # The master must send GETACK to all replicas to get their current offset
+        getack_command = b"*3\r\n$8\r\nREPLCONF\r\n$6\r\nGETACK\r\n$1\r\n*\r\n"
+        
+        final_acknowledged_count = 0
+        replica_sockets_to_poll = list(REPLICA_SOCKETS)
+
+        with WAIT_LOCK:
+            
+            # Initial poll/wait loop
+            while time.time() - start_time < timeout_s:
+                
+                # 1. Send GETACK to all replicas
+                for replica_socket in replica_sockets_to_poll:
+                    try:
+                        replica_socket.sendall(getack_command)
+                        # We don't wait for the reply here; the reply comes back on the master's main loop 
+                        # and updates REPLICA_ACK_OFFSETS in another thread.
+                    except Exception as e:
+                        print(f"WAIT: Failed to send GETACK to replica: {e}. Removing dead replica.")
+                        # Remove the dead socket from the main list so it's not polled again.
+                        if replica_socket in REPLICA_SOCKETS:
+                             REPLICA_SOCKETS.remove(replica_socket)
+                        # Remove from poll list and continue
+                        replica_sockets_to_poll = list(REPLICA_SOCKETS)
+                        break # Restart inner loop after modifying the list
+
+                # 2. Check current acknowledged count
+                acknowledged_count = 0
+                for replica_socket in REPLICA_SOCKETS:
+                    ack_offset = REPLICA_ACK_OFFSETS.get(replica_socket, 0)
+                    if ack_offset >= target_offset:
+                        acknowledged_count += 1
+                
+                # 3. Check completion condition
+                if acknowledged_count >= num_replicas_required:
+                    final_acknowledged_count = acknowledged_count
+                    break
+
+                # 4. Wait for notification or timeout
+                timeout_remaining = timeout_s - (time.time() - start_time)
+                if timeout_remaining <= 0:
+                    # Timeout expired, final count will be calculated below
+                    break
+                
+                # Wait on the condition, which will be notified by REPLCONF ACK processing.
+                WAIT_CONDITION.wait(timeout_remaining)
+
+            # If the loop finished due to timeout or early completion, calculate the final count
+            if final_acknowledged_count == 0:
+                for replica_socket in REPLICA_SOCKETS:
+                    ack_offset = REPLICA_ACK_OFFSETS.get(replica_socket, 0)
+                    if ack_offset >= target_offset:
+                        final_acknowledged_count += 1
+                    
+        # Return the final count as a RESP Integer
+        response = b":" + str(final_acknowledged_count).encode() + b"\r\n"
         return response
     
     elif command == "QUIT":
@@ -1224,6 +1297,7 @@ def handle_command(command: str, arguments: list, client: socket.socket) -> bool
             
             # Reconstruct the raw RESP array
             resp_array_to_send = _serialize_command_to_resp_array(command, arguments)
+            command_byte_size = len(resp_array_to_send)
 
             # Iterate and send to ALL replicas
             for replica_socket in list(REPLICA_SOCKETS): 
@@ -1236,6 +1310,8 @@ def handle_command(command: str, arguments: list, client: socket.socket) -> bool
                         REPLICA_SOCKETS.remove(replica_socket)
                     except ValueError:
                         pass
+            
+            MASTER_REPL_OFFSET += command_byte_size
 
     # 4. SEND THE RESPONSE (CONSOLIDATED LOGIC)
     

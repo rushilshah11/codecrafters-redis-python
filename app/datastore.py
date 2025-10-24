@@ -20,6 +20,12 @@ STREAMS = {}
 
 multi_flag = False
 
+# New state for WAIT command on master
+WAIT_LOCK = threading.Lock()
+WAIT_CONDITION = threading.Condition(WAIT_LOCK)
+# Maps replica socket to its last acknowledged offset (int)
+REPLICA_ACK_OFFSETS = {}
+
 # The central storage. Keys map to a dictionary containing value, type, and expiry metadata.
 # Example: {'mykey': {'type': 'string', 'value': 'myvalue', 'expiry': 1731671220000}}
 DATA_STORE = {}
