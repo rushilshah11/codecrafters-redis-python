@@ -49,6 +49,7 @@ def replica_command_listener(master_socket: socket.socket):
                 
                 # Delegate to handle_command. The logic inside handle_command must suppress the response.
                 ce.handle_command(command, arguments, master_socket)
+                ce.REPLICA_REPL_OFFSET += bytes_consumed
 
                 # Move to the next command in the buffer
                 buffer = buffer[bytes_consumed:]
