@@ -18,6 +18,42 @@ MAX_LON = 180.0
 MIN_LAT = -85.05112878
 MAX_LAT = 85.05112878
 
+LATITUDE_RANGE = MAX_LAT - MIN_LAT
+LONGITUDE_RANGE = MAX_LON - MIN_LON
+
+def spread_int32_to_int64(v: int) -> int:
+    """Spreads bits of a 32-bit integer to occupy even positions in a 64-bit integer."""
+    v = v & 0xFFFFFFFF
+    v = (v | (v << 16)) & 0x0000FFFF0000FFFF
+    v = (v | (v << 8)) & 0x00FF00FF00FF00FF
+    v = (v | (v << 4)) & 0x0F0F0F0F0F0F0F0F
+    v = (v | (v << 2)) & 0x3333333333333333
+    v = (v | (v << 1)) & 0x5555555555555555
+    return v
+
+def interleave(x: int, y: int) -> int:
+    """Interleaves bits of two 32-bit integers to create a single 64-bit Morton code."""
+    x_spread = spread_int32_to_int64(x)
+    y_spread = spread_int32_to_int64(y)
+    y_shifted = y_spread << 1
+    return x_spread | y_shifted
+
+def encode_geohash(latitude: float, longitude: float) -> int:
+    """Encodes latitude and longitude into a single integer score using Morton encoding."""
+    # 2^26
+    power_26 = 1 << 26 
+    
+    # 1. Normalize to the range 0-2^26
+    normalized_latitude = power_26 * (latitude - MIN_LATITUDE) / LATITUDE_RANGE
+    normalized_longitude = power_26 * (longitude - MIN_LONGITUDE) / LONGITUDE_RANGE
+
+    # 2. Truncate to integers
+    lat_int = int(normalized_latitude)
+    lon_int = int(normalized_longitude)
+
+    # 3. Interleave bits
+    return interleave(lat_int, lon_int)
+
 # Default Redis config
 DIR = "."
 DB_FILENAME = "dump.rdb"
@@ -1295,35 +1331,36 @@ def execute_single_command(command: str, arguments: list, client: socket.socket)
         key = arguments[0]
         longitude_str = arguments[1]
         latitude_str = arguments[2]
-        member = arguments[3] # Extract the member name
+        member = arguments[3]
         
         # 1. Validate coordinates
         try:
             longitude = float(longitude_str)
             latitude = float(latitude_str)
         except ValueError:
-            # If coordinates are not valid numbers
-            error_msg = f"-ERR value is not a valid float\r\n"
-            return error_msg.encode()
+            error_msg = b"-ERR value is not a valid float\r\n"
+            return error_msg
 
         # 2. Check Longitude range [-180, 180]
-        if not (MIN_LON <= longitude <= MAX_LON):
-            error_msg = f"-ERR invalid longitude,latitude pair {longitude:.6f},{latitude:.6f}\r\n"
-            return error_msg.encode()
+        if not (MIN_LONGITUDE <= longitude <= MAX_LONGITUDE):
+            error_msg = f"-ERR invalid longitude,latitude pair {longitude:.6f},{latitude:.6f}\r\n".encode()
+            return error_msg
 
         # 3. Check Latitude range [-85.05112878, 85.05112878]
-        if not (MIN_LAT <= latitude <= MAX_LAT):
-            error_msg = f"-ERR invalid longitude,latitude pair {longitude:.6f},{latitude:.6f}\r\n"
-            return error_msg.encode()
+        if not (MIN_LATITUDE <= latitude <= MAX_LATITUDE):
+            error_msg = f"-ERR invalid longitude,latitude pair {longitude:.6f},{latitude:.6f}\r\n".encode()
+            return error_msg
             
-        # 4. Persistence: Use ZADD-like functionality with hardcoded score "0"
+        # 4. Persistence: Calculate geohash score and add to sorted set
+        score = encode_geohash(latitude, longitude)
+        score_str = str(score)
+        
         # add_to_sorted_set returns 1 if a new element was added, or 0 if an existing member was updated.
-        num_new_elements = add_to_sorted_set(key, member, "0")
+        num_new_elements = add_to_sorted_set(key, member, score_str)
         
         # 5. Return the count as a RESP Integer
         response = b":" + str(num_new_elements).encode() + b"\r\n"
         return response
-    
     elif command == "QUIT":
         response = b"+OK\r\n"
         # client.sendall(response
