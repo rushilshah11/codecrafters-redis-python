@@ -1408,8 +1408,7 @@ def execute_single_command(command: str, arguments: list, client: socket.socket)
    
     elif command == "GEOPOS":
         if len(arguments) < 2:
-            response = b"-ERR wrong number of arguments for 'GEOPOS' command\r\n"
-            return response
+            return b"-ERR wrong number of arguments for 'GEOPOS' command\r\n"
         
         key = arguments[0]
         members = arguments[1:]
@@ -1417,7 +1416,6 @@ def execute_single_command(command: str, arguments: list, client: socket.socket)
         final_response_parts = []
         
         for member in members:
-            # 1. Retrieve the score (stored as float in Redis)
             score_float = get_zscore(key, member) 
             
             if score_float is None:
@@ -1425,21 +1423,26 @@ def execute_single_command(command: str, arguments: list, client: socket.socket)
                 final_response_parts.append(b"*-1\r\n")
                 continue
                 
-            # 2. Convert score (float) to integer for bitwise decoding
+            # Logic for FOUND member
             score_int = int(score_float)
             
-            # 3. Decode the geohash score
+            # Returns (longitude, latitude)
             try:
-                # Returns (longitude, latitude)
                 longitude, latitude = decode_geohash_to_coords(score_int)
             except Exception:
-                # Should not happen with valid GeoHash scores, but defensively handle error
+                # Internal error during decoding
                 final_response_parts.append(b"*-1\r\n")
                 continue
 
-            # 4. Format coordinates as RESP Bulk Strings (with high precision)
-            lon_str = f"{longitude:.15f}"
-            lat_str = f"{latitude:.15f}"
+            # 4. Format coordinates as RESP Bulk Strings (with high precision and minimal trailing zeros)
+            
+            # Format to 15 decimal places to maintain precision, then remove trailing zeros/decimal point to match Redis output style
+            lon_str = f"{longitude:.15f}".rstrip('0').rstrip('.')
+            lat_str = f"{latitude:.15f}".rstrip('0').rstrip('.')
+
+            # Ensure '0' is not stripped to an empty string if the value is 0.0
+            if lon_str == "": lon_str = "0"
+            if lat_str == "": lat_str = "0"
             
             # Format as Bulk Strings
             lon_bytes = lon_str.encode()
@@ -1454,6 +1457,7 @@ def execute_single_command(command: str, arguments: list, client: socket.socket)
         # 5. Wrap all individual responses in the final RESP array
         response = b"*" + str(len(final_response_parts)).encode() + b"\r\n" + b"".join(final_response_parts)
         return response
+
     elif command == "QUIT":
         response = b"+OK\r\n"
         # client.sendall(response
