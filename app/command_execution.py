@@ -1310,7 +1310,7 @@ def handle_command(command: str, arguments: list, client: socket.socket) -> bool
                         REPLICA_SOCKETS.remove(replica_socket)
                     except ValueError:
                         pass
-            
+            global MASTER_REPL_OFFSET
             MASTER_REPL_OFFSET += command_byte_size
 
     # 4. SEND THE RESPONSE (CONSOLIDATED LOGIC)
