@@ -150,7 +150,7 @@ def execute_single_command(command: str, arguments: list, client: socket.socket)
 
         # 4. Combine the responses: FULLRESYNC + RDB file
         # The single client.sendall() call in handle_command will send both.
-        response = rdb_response_bytes
+        response = fullresync_response_bytes+rdb_response_bytes
         return response
     
     elif command == "ECHO":
