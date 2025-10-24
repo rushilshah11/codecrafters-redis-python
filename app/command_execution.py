@@ -44,8 +44,8 @@ def encode_geohash(latitude: float, longitude: float) -> int:
     power_26 = 1 << 26 
     
     # 1. Normalize to the range 0-2^26
-    normalized_latitude = power_26 * (latitude - MIN_LATITUDE) / LATITUDE_RANGE
-    normalized_longitude = power_26 * (longitude - MIN_LONGITUDE) / LONGITUDE_RANGE
+    normalized_latitude = power_26 * (latitude - MIN_LAT) / LATITUDE_RANGE
+    normalized_longitude = power_26 * (longitude - MIN_LON) / LONGITUDE_RANGE
 
     # 2. Truncate to integers
     lat_int = int(normalized_latitude)
