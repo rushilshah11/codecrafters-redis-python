@@ -4,6 +4,7 @@ import sys
 import os
 import threading
 import time
+import math
 import argparse
 from xmlrpc import client
 from app.parser import parsed_resp_array
@@ -20,6 +21,30 @@ MAX_LAT = 85.05112878
 
 LATITUDE_RANGE = MAX_LAT - MIN_LAT
 LONGITUDE_RANGE = MAX_LON - MIN_LON
+
+EARTH_RADIUS_M = 6372797.560856 
+
+# ... (MIN_LON, MAX_LON, MIN_LAT, MAX_LAT and coordinate helper functions remain the same)
+
+def haversine_distance(lon1: float, lat1: float, lon2: float, lat2: float) -> float:
+    """Calculates the distance between two points (lon, lat) using the Haversine formula."""
+    # Convert degrees to radians
+    lat1_rad = math.radians(lat1)
+    lon1_rad = math.radians(lon1)
+    lat2_rad = math.radians(lat2)
+    lon2_rad = math.radians(lon2)
+
+    # Differences
+    dlat = lat2_rad - lat1_rad
+    dlon = lon2_rad - lon1_rad
+
+    # Haversine formula calculation: a = sin²(dlat/2) + cos(lat1) * cos(lat2) * sin²(dlon/2)
+    a = math.sin(dlat / 2)**2 + math.cos(lat1_rad) * math.cos(lat2_rad) * math.sin(dlon / 2)**2
+    # c = 2 * atan2(sqrt(a), sqrt(1-a)) simplifies to 2 * asin(sqrt(a))
+    c = 2 * math.asin(math.sqrt(a))
+    
+    distance = EARTH_RADIUS_M * c
+    return distance
 
 def spread_int32_to_int64(v: int) -> int:
     """Spreads bits of a 32-bit integer to occupy even positions in a 64-bit integer."""
@@ -1456,6 +1481,44 @@ def execute_single_command(command: str, arguments: list, client: socket.socket)
 
         # 5. Wrap all individual responses in the final RESP array
         response = b"*" + str(len(final_response_parts)).encode() + b"\r\n" + b"".join(final_response_parts)
+        return response
+
+    elif command == "GEODIST":
+        if len(arguments) != 3:
+            return b"-ERR wrong number of arguments for 'GEODIST' command\r\n"
+
+        key = arguments[0]
+        member1 = arguments[1]
+        member2 = arguments[2]
+
+        # 1. Retrieve scores
+        score1_float = get_zscore(key, member1)
+        score2_float = get_zscore(key, member2)
+
+        if score1_float is None or score2_float is None:
+            # If key/member not found, return Null Bulk String
+            return b"$-1\r\n"
+
+        # 2. Decode scores to coordinates
+        try:
+            # decode_geohash_to_coords returns (longitude, latitude)
+            lon1, lat1 = decode_geohash_to_coords(int(score1_float))
+            lon2, lat2 = decode_geohash_to_coords(int(score2_float))
+        except Exception:
+            # Internal decoding error
+            return b"$-1\r\n"
+
+        # 3. Calculate distance
+        distance = haversine_distance(lon1, lat1, lon2, lat2)
+
+        # 4. Format and return as RESP Bulk String (meters)
+        # Use a string format for high precision (up to 4 decimal places required)
+        distance_str = f"{distance:.4f}".rstrip('0').rstrip('.')
+        if distance_str == "": distance_str = "0"
+        
+        distance_bytes = distance_str.encode()
+        
+        response = b"$" + str(len(distance_bytes)).encode() + b"\r\n" + distance_bytes + b"\r\n"
         return response
 
     elif command == "QUIT":
