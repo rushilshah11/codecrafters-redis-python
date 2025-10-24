@@ -1192,6 +1192,9 @@ def execute_single_command(command: str, arguments: list, client: socket.socket)
             response = b"-ERR numreplicas or timeout is not an integer\r\n"
             return response
         
+        global MASTER_REPL_OFFSET
+        global REPLICA_SOCKETS
+        
         target_offset = MASTER_REPL_OFFSET
         timeout_s = timeout_ms / 1000.0
         start_time = time.time()
