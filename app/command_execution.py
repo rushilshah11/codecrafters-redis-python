@@ -133,10 +133,22 @@ def execute_single_command(command: str, arguments: list, client: socket.socket)
             return response
 
     elif command == "REPLCONF": 
-        # The master receives two REPLCONF commands from the replica:
-        # 1. REPLCONF listening-port <PORT>
-        # 2. REPLCONF capa psync2
-        # For this stage, we simply respond with +OK\r\n for both, regardless of arguments.
+        if len(arguments) == 2 and arguments[0].upper() == "GETACK" and arguments[1] == "*":
+            # REPLCONF ACK <offset> where offset is hardcoded to 0
+            offset = 0 # Hardcoded for this stage
+            offset_str = str(offset)
+            
+            # Construct the RESP Array: *3\r\n$8\r\nREPLCONF\r\n$3\r\nACK\r\n$1\r\n0\r\n
+            response = (
+                b"*3\r\n" + # Array of 3 elements
+                b"$8\r\nREPLCONF\r\n" +
+                b"$3\r\nACK\r\n" +
+                b"$" + str(len(offset_str)).encode() + b"\r\n" +
+                offset_str.encode() + b"\r\n"
+            )
+            return response
+        
+        # Handshake REPLCONF commands (listening-port <PORT> and capa psync2)
         response = b"+OK\r\n"
         return response
     
@@ -1224,8 +1236,19 @@ def handle_command(command: str, arguments: list, client: socket.socket) -> bool
         # --- RESPONSE SUPPRESSION CHECK (REPLICA ROLE) ---
         # If we are a slave AND the command came on the master's replication connection, suppress the response.
         if SERVER_ROLE == "slave" and client == MASTER_SOCKET:
-            print(f"Replica: Executed propagated command '{command}' silently.")
-            return True # Suppressed successfully, DO NOT send response.
+            # EXCEPTION: REPLCONF GETACK is the *only* command that requires a response back to the master.
+            is_replconf_getack = (
+                command == "REPLCONF" and 
+                len(arguments) >= 2 and 
+                arguments[0].upper() == "GETACK"
+            )
+
+            if is_replconf_getack:
+                print(f"Replica: Executing REPLCONF GETACK and sending ACK back to master.")
+                # Fall through to the response sending logic below
+            else:
+                print(f"Replica: Executed propagated command '{command}' silently.")
+                return True # Suppressed successfully, DO NOT send response.
 
         # --- REGULAR CLIENT RESPONSE ---
         client_address = client.getpeername()
