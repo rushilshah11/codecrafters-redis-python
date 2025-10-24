@@ -175,5 +175,91 @@ XRANGE sensor_data - +
 
 ---
 
+# 📢 Redis Pub/Sub and Sorted Sets Demo
+
+This guide demonstrates how to use Redis **Publish/Subscribe (Pub/Sub)** and **Sorted Sets** features.
+
+---
+
+## 📢 Pub/Sub (Publish-Subscribe)
+
+Pub/Sub requires two separate `redis-cli` clients.
+
+### **Client A (Subscriber):**
+Connect and listen on a channel. This client will enter a special state.
+
+```bash
+# Terminal 3
+redis-cli -p 6379
+
+SUBSCRIBE alerts
+Reading messages... (press Ctrl-C to quit)
+1) "subscribe"
+2) "alerts"
+3) (integer) 1
+```
+
+### **Client B (Publisher):**
+Open a fourth terminal and publish a message.
+
+```bash
+# Terminal 4
+redis-cli -p 6379
+
+PUBLISH alerts "System going down in 5 mins"
+(integer) 1  # Number of recipients
+```
+
+### **Client A's Output:**
+The message appears automatically.
+
+```bash
+1) "message"
+2) "alerts"
+3) "System going down in 5 mins"
+```
+
+---
+
+## 🏆 Sorted Sets
+
+Sorted Sets are stored based on a score, then lexicographically.
+
+```bash
+redis-cli -p 6379
+
+# Add members with scores
+ZADD leaders 100 Alice
+(integer) 1
+
+ZADD leaders 200 Bob
+(integer) 1
+
+ZADD leaders 150 Charlie
+(integer) 1
+
+# Get the rank (0-based index) of Alice
+ZRANK leaders Alice
+(integer) 0
+
+# Get the full range (sorted by score ascending)
+ZRANGE leaders 0 -1
+1) "Alice"
+2) "Charlie"
+3) "Bob"
+
+# Check the score for Charlie
+ZSCORE leaders Charlie
+"150"
+```
+
+---
+
 ✅ **End of Demo**
 
+---
+
+## 🧑‍💻 Author
+**Rushil Shah**  
+📫 [LinkedIn](https://linkedin.com/in/rushilshahh)
+💼 Portfolio
