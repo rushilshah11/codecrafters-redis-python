@@ -1219,7 +1219,7 @@ def handle_command(command: str, arguments: list, client: socket.socket) -> bool
 
     # 4b. Handle response only if it's a bytes object (a valid RESP response)
     if isinstance(response_or_signal, bytes):
-        global SERVER_ROLE, MASTER_SOCKET
+        global MASTER_SOCKET
         
         # --- RESPONSE SUPPRESSION CHECK (REPLICA ROLE) ---
         # If we are a slave AND the command came on the master's replication connection, suppress the response.
@@ -1245,6 +1245,7 @@ def handle_command(command: str, arguments: list, client: socket.socket) -> bool
         return True
             
     return True
+
 def handle_connection(client: socket.socket, client_address):
     """
     This function is called for each new client connection.
