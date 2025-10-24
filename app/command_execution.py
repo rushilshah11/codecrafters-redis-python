@@ -99,7 +99,14 @@ def decode_geohash_to_coords(geo_code: int) -> tuple[float, float]:
     normalized_longitude = grid_longitude_number + 0.5
     normalized_latitude = grid_latitude_number + 0.5
     
-    return convert_grid_numbers_to_coordinates(grid_latitude_number, grid_longitude_number)
+    power_26 = 1 << 26 
+
+    # Reverse normalization formula: coord = (N + 0.5) / 2^26 * RANGE + MIN
+    longitude = (normalized_longitude / power_26) * LONGITUDE_RANGE + MIN_LONGITUDE
+    latitude = (normalized_latitude / power_26) * LATITUDE_RANGE + MIN_LATITUDE
+    
+    # GEOPOS returns Longitude then Latitude
+    return (longitude, latitude)
 
 # Default Redis config
 DIR = "."
