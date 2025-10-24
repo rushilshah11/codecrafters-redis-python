@@ -134,6 +134,8 @@ def execute_single_command(command: str, arguments: list, client: socket.socket)
     elif command == "PSYNC": 
         # The master receives PSYNC ? -1 from the replica.
         # It must respond with +FULLRESYNC <REPL_ID> <OFFSET>\r\n encoded as a Simple String.
+        print(f"Sent: FULLRESYNC + RDB file for command '{command}' to {client_address}. Waiting 10ms...")
+        time.sleep(0.01) # Wait 10ms to let the client receive the buffer
         
         # 1. Retrieve the master's replication ID and offset
         repl_id = MASTER_REPLID
