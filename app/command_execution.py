@@ -105,6 +105,8 @@ def _xread_serialize_response(stream_data: dict[str, list[dict]]) -> bytes:
     return b"*" + str(len(outer_response_parts)).encode() + b"\r\n" + b"".join(outer_response_parts)
 
 def execute_single_command(command: str, arguments: list, client: socket.socket) -> bytes | bool:
+
+    response = None
     """
     Executes a single command and sends the response.
     Returns True if the command was processed successfully, False otherwise (e.g., unknown command).
