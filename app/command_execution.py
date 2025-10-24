@@ -25,6 +25,8 @@ MASTER_REPLID = "8371b4fb1155b71f4a04d3e1bc3e18c4a990aeeb" # Hardcoded 40-char I
 MASTER_REPL_OFFSET = 0 # Starts at 0
 MASTER_SOCKET = None
 
+REPLICA_SOCKET = None
+
 # Define the 59-byte empty RDB file content (hexadecimal)
 # command_execution.py around line 40
 
@@ -156,6 +158,9 @@ def execute_single_command(command: str, arguments: list, client: socket.socket)
         # The format is $<length>\r\n<binary_contents>
         rdb_header = b"$" + str(rdb_file_size).encode() + b"\r\n"
         rdb_response_bytes = rdb_header + rdb_binary_contents
+
+        global REPLICA_SOCKET # <-- FIX 1: Use global to modify the variable
+        REPLICA_SOCKET = client
 
         # 5. Return the two parts separately as a tuple
         response = fullresync_response_bytes + rdb_response_bytes
@@ -1164,7 +1169,6 @@ def execute_single_command(command: str, arguments: list, client: socket.socket)
 def handle_command(command: str, arguments: list, client: socket.socket) -> bool:
     
     client_address = client.getpeername()
-    REPLICA_SOCKET = client
 
 
     if is_client_in_multi(client):
@@ -1182,6 +1186,7 @@ def handle_command(command: str, arguments: list, client: socket.socket) -> bool
     response_or_signal = execute_single_command(command, arguments, client)
     # --- PROPAGATION LOGIC ADDED HERE ---
     is_write_command = command in WRITE_COMMANDS
+    global REPLICA_SOCKET 
     is_master_with_replica = SERVER_ROLE == "master" and REPLICA_SOCKET is not None
     
     if is_master_with_replica and is_write_command:
