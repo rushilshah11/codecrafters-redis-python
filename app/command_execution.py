@@ -1180,7 +1180,6 @@ def execute_single_command(command: str, arguments: list, client: socket.socket)
 
         # In this initial stage, we immediately return the number of replicas
         # that have connected to the master.
-        global REPLICA_SOCKETS
         num_connected_replicas = len(REPLICA_SOCKETS)
 
         # Return the count as a RESP Integer: :<count>\r\n
