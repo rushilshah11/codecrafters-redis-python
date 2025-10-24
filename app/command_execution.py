@@ -24,11 +24,18 @@ MASTER_REPL_OFFSET = 0 # Starts at 0
 MASTER_SOCKET = None
 
 # Define the 59-byte empty RDB file content (hexadecimal)
-empty_rdb_hex = "524544495330303131fa0972656469732d76657205372e322e30fa0a72656469732d62697473c040fa056374696d65c26d08bc65fa08757365642d6d656dc2b0c41000fa08616f662d62617365c000fff06e3bfec0ff5aa2"
+# command_execution.py around line 40
 
-empty_rdb_bytes = bytes.fromhex(empty_rdb_hex)
-RDB_FILE_SIZE = 59
-RDB_HEADER = b"$59\r\n"
+# Define the 59-byte empty RDB file content (hexadecimal)
+# CHANGE: Use the RDB HEX string provided in the sample answer
+EMPTY_RDB_HEX = (
+    "524544495330303131fa0972656469732d76657205372e322e30fa0a72656469732d62697473c040fa056374696d65c26d08bc65fa08757365642d6d656dc2b0c41000fa08616f662d62617365c000fff06e3bfec0ff5aa2"
+)
+empty_rdb_bytes = bytes.fromhex(EMPTY_RDB_HEX) 
+# RDB_FILE_SIZE will be determined by the actual length of the new hex string.
+RDB_FILE_SIZE = len(empty_rdb_bytes)
+RDB_HEADER = b"$" + str(RDB_FILE_SIZE).encode() + b"\r\n" # Dynamically create the header bytes
+# Note: This is equivalent to b"$102\r\n" if the hex string is 102 bytes long.
 
 # Parse args like --dir /path --dbfilename file.rdb
 args = sys.argv[1:]
@@ -131,12 +138,25 @@ def execute_single_command(command: str, arguments: list, client: socket.socket)
     
     elif command == "PSYNC": 
 
+        # 2. Construct the FULLRESYNC response string
         fullresync_response_str = f"+FULLRESYNC {MASTER_REPLID} {MASTER_REPL_OFFSET}\r\n"
         fullresync_response_bytes = fullresync_response_str.encode()
 
-        rdb_response_bytes = RDB_HEADER + empty_rdb_bytes
+        # 3. Use the new RDB hex content and convert to binary bytes
+        # This is the RDB HEX string provided in the sample answer
+        EMPTY_RDB_HEX = (
+            "524544495330303131fa0972656469732d76657205372e322e30fa0a72656469732d62697473c040fa056374696d65c26d08bc65fa08757365642d6d656dc2b0c41000fa08616f662d62617365c000fff06e3bfec0ff5aa2"
+        )
+        rdb_binary_contents = bytes.fromhex(EMPTY_RDB_HEX) 
+        rdb_file_size = len(rdb_binary_contents)
 
-        response = fullresync_response_bytes+rdb_response_bytes
+        # 4. Construct the RDB file bulk response header and combine with contents
+        # The format is $<length>\r\n<binary_contents>
+        rdb_header = b"$" + str(rdb_file_size).encode() + b"\r\n"
+        rdb_response_bytes = rdb_header + rdb_binary_contents
+
+        # 5. Return the two parts separately as a tuple
+        response = fullresync_response_bytes + rdb_response_bytes
         return response
     
     elif command == "ECHO":
