@@ -1342,12 +1342,12 @@ def execute_single_command(command: str, arguments: list, client: socket.socket)
             return error_msg
 
         # 2. Check Longitude range [-180, 180]
-        if not (MIN_LONGITUDE <= longitude <= MAX_LONGITUDE):
+        if not (MIN_LON <= longitude <= MAX_LON):
             error_msg = f"-ERR invalid longitude,latitude pair {longitude:.6f},{latitude:.6f}\r\n".encode()
             return error_msg
 
         # 3. Check Latitude range [-85.05112878, 85.05112878]
-        if not (MIN_LATITUDE <= latitude <= MAX_LATITUDE):
+        if not (MIN_LAT <= latitude <= MAX_LAT):
             error_msg = f"-ERR invalid longitude,latitude pair {longitude:.6f},{latitude:.6f}\r\n".encode()
             return error_msg
             
