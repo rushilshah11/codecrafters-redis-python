@@ -23,6 +23,7 @@ MASTER_PORT = None
 
 MASTER_REPLID = "8371b4fb1155b71f4a04d3e1bc3e18c4a990aeeb" # Hardcoded 40-char ID
 MASTER_REPL_OFFSET = 0 # Starts at 0
+REPLICA_REPL_OFFSET = 0
 MASTER_SOCKET = None
 
 REPLICA_SOCKETS = []
@@ -134,8 +135,9 @@ def execute_single_command(command: str, arguments: list, client: socket.socket)
 
     elif command == "REPLCONF": 
         if len(arguments) == 2 and arguments[0].upper() == "GETACK" and arguments[1] == "*":
-            # REPLCONF ACK <offset> where offset is hardcoded to 0
-            offset = 0 # Hardcoded for this stage
+            # REPLCONF ACK <offset> - use the replica's current offset
+            global REPLICA_REPL_OFFSET # Access the global offset
+            offset = REPLICA_REPL_OFFSET
             offset_str = str(offset)
             
             # Construct the RESP Array: *3\r\n$8\r\nREPLCONF\r\n$3\r\nACK\r\n$1\r\n0\r\n
