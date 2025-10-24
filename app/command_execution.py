@@ -11,7 +11,7 @@ from app.datastore import BLOCKING_CLIENTS, BLOCKING_CLIENTS_LOCK, BLOCKING_STRE
 
 # --------------------------------------------------------------------------------
 
-WRITE_COMMANDS = {"SET", "LPUSH", "RPUSH", "LPOP", "ZADD", "ZREM", "XADD", "INCR"}
+WRITE_COMMANDS = {"SET", "LPUSH", "RPUSH", "LPOP", "ZADD", "ZREM", "XADD", "INCR", "GEOADD"}
 
 # Default Redis config
 DIR = "."
@@ -1279,6 +1279,20 @@ def execute_single_command(command: str, arguments: list, client: socket.socket)
                     
         # Return the final count as a RESP Integer
         response = b":" + str(final_acknowledged_count).encode() + b"\r\n"
+        return response
+    
+    elif command == "GEOADD":
+        # GEOADD <key> <longitude> <latitude> <member>
+        # Arguments needed: key, longitude, latitude, member (4 arguments)
+        # We expect at least the key, longitude, latitude, and one member.
+        # Since the example is simple, we check for a minimum of 4 arguments.
+        if len(arguments) < 4:
+            response = b"-ERR wrong number of arguments for 'GEOADD' command\r\n"
+            return response
+        
+        # For this stage, the requirement is to always return 1, encoded as a RESP Integer.
+        # :1\r\n
+        response = b":1\r\n"
         return response
     
     elif command == "QUIT":
