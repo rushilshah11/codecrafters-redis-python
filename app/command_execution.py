@@ -1175,7 +1175,6 @@ def handle_command(command: str, arguments: list, client: socket.socket) -> bool
     # Check if the response is a bytes object (and not None, False, or True)
     if isinstance(response_or_signal, bytes):
         client.sendall(response_or_signal)
-        print(f"Sent: Response for command '{command}' to {client_address}. Type: {response_or_signal[:3]!r}")
         return True
     
     # If response_or_signal is None (e.g., successful XREAD block), we return True (success) 
