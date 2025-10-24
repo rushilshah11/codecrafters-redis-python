@@ -7,9 +7,11 @@ import time
 import argparse
 from xmlrpc import client
 from app.parser import parsed_resp_array
-from app.datastore import BLOCKING_CLIENTS, BLOCKING_CLIENTS_LOCK, BLOCKING_STREAMS, BLOCKING_STREAMS_LOCK, CHANNEL_SUBSCRIBERS, DATA_LOCK, DATA_STORE, SORTED_SETS, STREAMS, add_to_sorted_set, cleanup_blocked_client, enqueue_client_command, get_client_queued_commands, get_sorted_set_range, get_sorted_set_rank, get_stream_max_id, get_zscore, increment_key_value, is_client_in_multi, is_client_subscribed, load_rdb_to_datastore, lrange_rtn, num_client_subscriptions, prepend_to_list, remove_elements_from_list, remove_from_sorted_set, set_client_in_multi, size_of_list, append_to_list, existing_list, get_data_entry, set_list, set_string, subscribe, unsubscribe, xadd, xrange, xread
+from app.datastore import BLOCKING_CLIENTS, BLOCKING_CLIENTS_LOCK, BLOCKING_STREAMS, BLOCKING_STREAMS_LOCK, CHANNEL_SUBSCRIBERS, DATA_LOCK, DATA_STORE, SORTED_SETS, STREAMS, _serialize_command_to_resp_array, add_to_sorted_set, cleanup_blocked_client, enqueue_client_command, get_client_queued_commands, get_sorted_set_range, get_sorted_set_rank, get_stream_max_id, get_zscore, increment_key_value, is_client_in_multi, is_client_subscribed, load_rdb_to_datastore, lrange_rtn, num_client_subscriptions, prepend_to_list, remove_elements_from_list, remove_from_sorted_set, set_client_in_multi, size_of_list, append_to_list, existing_list, get_data_entry, set_list, set_string, subscribe, unsubscribe, xadd, xrange, xread
 
 # --------------------------------------------------------------------------------
+
+WRITE_COMMANDS = {"SET", "LPUSH", "RPUSH", "LPOP", "ZADD", "ZREM", "XADD", "INCR"}
 
 # Default Redis config
 DIR = "."
@@ -154,6 +156,9 @@ def execute_single_command(command: str, arguments: list, client: socket.socket)
         # The format is $<length>\r\n<binary_contents>
         rdb_header = b"$" + str(rdb_file_size).encode() + b"\r\n"
         rdb_response_bytes = rdb_header + rdb_binary_contents
+
+        global REPLICA_SOCKET
+        REPLICA_SOCKET = client
 
         # 5. Return the two parts separately as a tuple
         response = fullresync_response_bytes + rdb_response_bytes
@@ -1176,6 +1181,23 @@ def handle_command(command: str, arguments: list, client: socket.socket) -> bool
             return True # Signal that the command was handled (queued)
         
     response_or_signal = execute_single_command(command, arguments, client)
+    # --- PROPAGATION LOGIC ADDED HERE ---
+    is_write_command = command in WRITE_COMMANDS
+    is_master_with_replica = SERVER_ROLE == "master" and REPLICA_SOCKET is not None
+    
+    if is_master_with_replica and is_write_command:
+        # Propagate only if the command executed successfully (returned bytes, not an error)
+        if isinstance(response_or_signal, bytes) and not response_or_signal.startswith(b'-'):
+            
+            # Reconstruct the raw RESP array
+            resp_array_to_send = _serialize_command_to_resp_array(command, arguments)
+
+            # Propagate to the replica
+            try:
+                REPLICA_SOCKET.sendall(resp_array_to_send)
+                print(f"Propagation: Sent command '{command}' to replica.")
+            except Exception as e:
+                print(f"Propagation Error: Could not send command to replica: {e}")
 
     # 4. SEND THE RESPONSE
     # Check if the response is a bytes object (and not None, False, or True)

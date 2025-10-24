@@ -14,6 +14,12 @@ CHANNEL_SUBSCRIBERS = {}
 CLIENT_SUBSCRIPTIONS = {}
 CLIENT_STATE = {}
 
+# command_execution.py (Near the top)
+# ... other globals like MASTER_SOCKET ...
+
+REPLICA_SOCKETS = [] # List to hold sockets of all connected replicas
+REPLICAS_LOCK = threading.Lock() # Lock for thread-safe access to REPLICA_SOCKETS
+
 SORTED_SETS = {}
 
 STREAMS = {}
@@ -783,3 +789,58 @@ def enqueue_client_command(client, command: str, arguments: list):
         
         # Store the command as a tuple: (COMMAND, [arg1, arg2, ...])
         state["queue"].append((command, arguments))
+
+
+# command_execution.py (add this near the end of the file, before handle_command)
+
+def propagate_command(command: str, arguments: list):
+    """
+    Encodes the command and arguments into a RESP Array and sends it 
+    to all registered replica sockets.
+    """
+    if SERVER_ROLE != "master" or not REPLICA_SOCKETS:
+        return
+
+    # 1. Build the RESP Array for the command: *N\r\n$len(cmd)\r\nCMD\r\n...args
+    resp_parts = []
+    
+    # 1a. Command part
+    cmd_bytes = command.encode()
+    resp_parts.append(b"$" + str(len(cmd_bytes)).encode() + b"\r\n" + cmd_bytes + b"\r\n")
+
+    # 1b. Argument parts
+    for arg in arguments:
+        arg_bytes = arg.encode()
+        resp_parts.append(b"$" + str(len(arg_bytes)).encode() + b"\r\n" + arg_bytes + b"\r\n")
+
+    # 1c. Combine into a full RESP array payload
+    full_payload = b"*" + str(len(resp_parts)).encode() + b"\r\n" + b"".join(resp_parts)
+
+    # 2. Propagate to all replicas
+    with REPLICAS_LOCK:
+        for replica_socket in REPLICA_SOCKETS:
+            try:
+                replica_socket.sendall(full_payload)
+            except Exception as e:
+                # Handle broken connections silently (they will be removed later)
+                print(f"Propagation Error: Failed to send command to replica: {e}")
+
+def _serialize_command_to_resp_array(command: str, arguments: list) -> bytes:
+    """
+    Converts a command and its arguments into a raw RESP array byte string.
+    Example: ('SET', ['foo', 'bar']) -> b'*3\r\n$3\r\nSET\r\n$3\r\nfoo\r\n$3\r\nbar\r\n'
+    """
+    elements = [command] + arguments
+    
+    # Start with the array header: *<count>\r\n
+    resp_array_parts = [b"*" + str(len(elements)).encode() + b"\r\n"]
+    
+    for element in elements:
+        # Each element is a bulk string: $<length>\r\n<content>\r\n
+        element_bytes = element.encode()
+        length_bytes = str(len(element_bytes)).encode()
+        
+        resp_array_parts.append(b"$" + length_bytes + b"\r\n")
+        resp_array_parts.append(element_bytes + b"\r\n")
+        
+    return b"".join(resp_array_parts)
