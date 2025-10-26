@@ -1,4 +1,6 @@
-# 🐍 Python Redis From Scratch
+# Python Redis From Scratch
+
+This project recreates how a real database like Redis works — from networking to data storage — to show how data moves, updates, and scales in real time.
 
 This project is a **high-fidelity implementation of a Redis server** built entirely from Python.  
 It features a **multi-threaded, non-blocking architecture** that strictly adheres to the **Redis Serialization Protocol (RESP)**.
